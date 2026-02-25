@@ -290,6 +290,45 @@ if analyze_btn and api_key:
             for r in cio.get("risk_factors", []):
                 st.error(r)
 
+        # ---- 配对交易策略 ----
+        st.divider()
+        st.header("配对交易策略 (Long/Short)")
+        pair = result.get("phases", {}).get("pair_trade", {})
+        if pair.get("has_recommendation"):
+            st.subheader(pair.get("strategy_name", ""))
+            st.caption(f"类型: {pair.get('pair_type', 'N/A')}")
+            st.info(pair.get("thesis", ""))
+
+            col_long, col_short = st.columns(2)
+            long_leg = pair.get("long_leg", {})
+            short_leg = pair.get("short_leg", {})
+            with col_long:
+                st.metric("LONG", f"{long_leg.get('symbol', '?')} ({long_leg.get('weight', '')})")
+                st.success(long_leg.get("rationale", ""))
+            with col_short:
+                st.metric("SHORT", f"{short_leg.get('symbol', '?')} ({short_leg.get('weight', '')})")
+                st.error(short_leg.get("rationale", ""))
+
+            execution = pair.get("execution", {})
+            if execution:
+                with st.expander("执行计划"):
+                    exec_cols = st.columns(3)
+                    exec_cols[0].markdown(f"**入场时机:** {execution.get('entry_timing', 'N/A')}")
+                    exec_cols[1].markdown(f"**持有周期:** {execution.get('holding_period', 'N/A')}")
+                    exec_cols[2].markdown(f"**配对仓位:** {execution.get('position_sizing', 'N/A')}")
+                    st.markdown(f"**目标收益:** {execution.get('profit_target', 'N/A')}")
+                    st.markdown(f"**止损条件:** {execution.get('stop_loss', 'N/A')}")
+
+            risk_notes = pair.get("risk_notes", [])
+            if risk_notes:
+                with st.expander("配对风险"):
+                    for rn in risk_notes:
+                        st.warning(rn)
+                    if pair.get("invalidation"):
+                        st.error(f"失效条件: {pair['invalidation']}")
+        else:
+            st.warning(f"无配对推荐: {pair.get('no_recommendation_reason', '未给出原因')}")
+
         # ---- 下载报告 ----
         st.divider()
         report_text = DebateEngine.generate_report(result)

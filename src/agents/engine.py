@@ -23,6 +23,8 @@ from src.agents.definitions import (
     CIO_DECISION_PROMPT,
     DEBATE_ROUND_PROMPT,
     INDEPENDENT_ANALYSIS_PROMPT,
+    PAIR_TRADE_PROMPT,
+    PAIR_TRADE_SYSTEM_PROMPT,
     RISK_COMMITTEE_PROMPT,
 )
 from src.agents.memory import AnalysisMemory
@@ -233,6 +235,26 @@ class DebateEngine:
         result["recommendation"] = cio_decision.get("recommendation", "HOLD")
         result["confidence"] = cio_decision.get("confidence", 0)
         msg(f"CIO 决策: {result['recommendation']}, 信心: {result['confidence']}%")
+
+        # ============================================================
+        # Phase 5: 配对交易分析
+        # ============================================================
+        notify("配对交易分析")
+        msg("正在评估配对交易机会...")
+        pair_trade = self._run_pair_trade_analysis(
+            symbol=symbol,
+            company_name=data_pack["key_metrics"].get("company_name", symbol),
+            cio_decision=cio_decision,
+            data_pack=data_pack,
+        )
+        result["phases"]["pair_trade"] = pair_trade
+        if pair_trade.get("has_recommendation"):
+            long_sym = pair_trade.get("long_leg", {}).get("symbol", "?")
+            short_sym = pair_trade.get("short_leg", {}).get("symbol", "?")
+            msg(f"配对策略: Long {long_sym} / Short {short_sym}")
+            msg(f"  逻辑: {pair_trade.get('thesis', '')}")
+        else:
+            msg(f"无配对推荐: {pair_trade.get('no_recommendation_reason', '未给出原因')}")
 
         # ============================================================
         # 存储记忆
@@ -487,6 +509,87 @@ class DebateEngine:
         return result
 
     # ==================================================================
+    # Phase 5: 配对交易
+    # ==================================================================
+    def _run_pair_trade_analysis(
+        self,
+        symbol: str,
+        company_name: str,
+        cio_decision: dict,
+        data_pack: dict,
+    ) -> dict:
+        """配对交易 (Long/Short) 策略分析"""
+
+        # 构建候选池: 竞品 + 产业链上下游
+        comparison = data_pack["competitive_comparison"]
+        candidates = []
+
+        # 竞品
+        comp_table = comparison.get("comparison_table", [])
+        for row in comp_table:
+            s = row.get("symbol", "")
+            if s and s != symbol:
+                name = row.get("name", s)
+                pe = row.get("pe_ratio")
+                growth = row.get("revenue_growth")
+                margin = row.get("profit_margin")
+                candidates.append(
+                    f"- {s} ({name}): PE={pe or 'N/A'}, "
+                    f"营收增速={f'{growth*100:.1f}%' if growth else 'N/A'}, "
+                    f"净利率={f'{margin*100:.1f}%' if margin else 'N/A'} [竞品]"
+                )
+
+        # 上游
+        for comp in comparison.get("supply_chain_upstream", []):
+            s = comp.get("symbol", "")
+            name = comp.get("company_name", s)
+            pe = comp.get("pe_ratio")
+            growth = comp.get("revenue_growth")
+            candidates.append(
+                f"- {s} ({name}): PE={pe or 'N/A'}, "
+                f"营收增速={f'{growth*100:.1f}%' if growth else 'N/A'} [上游]"
+            )
+
+        # 下游
+        for comp in comparison.get("supply_chain_downstream", []):
+            s = comp.get("symbol", "")
+            name = comp.get("company_name", s)
+            pe = comp.get("pe_ratio")
+            growth = comp.get("revenue_growth")
+            candidates.append(
+                f"- {s} ({name}): PE={pe or 'N/A'}, "
+                f"营收增速={f'{growth*100:.1f}%' if growth else 'N/A'} [下游]"
+            )
+
+        candidate_text = "\n".join(candidates) if candidates else "候选池为空（未找到相关标的）"
+
+        prompt = PAIR_TRADE_PROMPT.format(
+            symbol=symbol,
+            company_name=company_name,
+            recommendation=cio_decision.get("recommendation", "N/A"),
+            confidence=cio_decision.get("confidence", 0),
+            bull_arguments=", ".join(cio_decision.get("key_bull_arguments", [])),
+            bear_arguments=", ".join(cio_decision.get("key_bear_arguments", [])),
+            competitive_comparison=data_pack["competitive_text"],
+            supply_chain_info=data_pack["supply_chain_text"],
+            candidate_pool=candidate_text,
+        )
+
+        response = self._call_llm(
+            model=self.analyst_model,
+            system=PAIR_TRADE_SYSTEM_PROMPT,
+            user_message=prompt,
+        )
+
+        result = parse_json_response(response)
+        if result is None:
+            result = {
+                "has_recommendation": False,
+                "no_recommendation_reason": "配对交易分析未能生成有效结果",
+            }
+        return result
+
+    # ==================================================================
     # 数据收集
     # ==================================================================
     def _collect_data(self, symbol: str) -> dict:
@@ -701,6 +804,73 @@ class DebateEngine:
                 lines.append("重新评估触发条件:")
                 for t in triggers:
                     lines.append(f"  -> {t}")
+
+        # 配对交易策略
+        pair = result.get("phases", {}).get("pair_trade", {})
+        lines.append("")
+        lines.append("=" * 60)
+        lines.append("配对交易策略 (Long/Short)")
+        lines.append("=" * 60)
+        if pair.get("has_recommendation"):
+            lines.append(f"策略: {pair.get('strategy_name', 'N/A')}")
+            lines.append(f"类型: {pair.get('pair_type', 'N/A')}")
+            lines.append(f"核心逻辑: {pair.get('thesis', 'N/A')}")
+            lines.append("")
+
+            long_leg = pair.get("long_leg", {})
+            short_leg = pair.get("short_leg", {})
+            lines.append(f"  LONG  {long_leg.get('symbol', '?')} ({long_leg.get('company_name', '')}) "
+                         f"权重 {long_leg.get('weight', 'N/A')}")
+            lines.append(f"    理由: {long_leg.get('rationale', 'N/A')}")
+            lines.append(f"  SHORT {short_leg.get('symbol', '?')} ({short_leg.get('company_name', '')}) "
+                         f"权重 {short_leg.get('weight', 'N/A')}")
+            lines.append(f"    理由: {short_leg.get('rationale', 'N/A')}")
+            lines.append("")
+
+            execution = pair.get("execution", {})
+            if execution:
+                lines.append("执行计划:")
+                lines.append(f"  入场时机: {execution.get('entry_timing', 'N/A')}")
+                lines.append(f"  持有周期: {execution.get('holding_period', 'N/A')}")
+                lines.append(f"  目标收益: {execution.get('profit_target', 'N/A')}")
+                lines.append(f"  止损条件: {execution.get('stop_loss', 'N/A')}")
+                lines.append(f"  配对仓位: {execution.get('position_sizing', 'N/A')}")
+
+            risk_notes = pair.get("risk_notes", [])
+            if risk_notes:
+                lines.append("")
+                lines.append("配对风险:")
+                for rn in risk_notes:
+                    lines.append(f"  !! {rn}")
+
+            if pair.get("invalidation"):
+                lines.append(f"  失效条件: {pair['invalidation']}")
+        else:
+            lines.append(f"无配对推荐")
+            lines.append(f"原因: {pair.get('no_recommendation_reason', '未给出原因')}")
+
+        # 报告指标说明
+        lines.append("")
+        lines.append("=" * 60)
+        lines.append("报告指标说明")
+        lines.append("=" * 60)
+        lines.append("")
+        lines.append("一、分析师立场 (Position: -100 ~ +100)")
+        lines.append("  +100 = 极度看多    +50 = 中度看多    +20 = 轻度看多")
+        lines.append("    0  = 中性")
+        lines.append("  -20  = 轻度看空    -50 = 中度看空   -100 = 极度看空")
+        lines.append("")
+        lines.append("二、信心度 (Confidence: 0% ~ 100%)")
+        lines.append("  90-100% 极高确信 | 70-89% 高确信 | 50-69% 中等确信")
+        lines.append("  30-49%  低确信   | 0-29%  极低确信")
+        lines.append("  注: 立场和信心是独立维度。'+80/信心40%'=倾向看多但很不确定。")
+        lines.append("")
+        lines.append("三、加权综合得分 = Σ(立场 × 角色权重 × 信心) / Σ(角色权重 × 信心)")
+        lines.append("  > +40 整体偏多 | +15~+40 温和偏多 | -15~+15 中性")
+        lines.append("  -40~-15 温和偏空 | < -40 整体偏空")
+        lines.append("")
+        lines.append("四、CIO 建议: STRONG_BUY > BUY > HOLD > SELL > STRONG_SELL")
+        lines.append("五、风控: APPROVE / APPROVE_WITH_CONDITIONS / VETO(否决→强制HOLD)")
 
         lines.append("")
         lines.append("=" * 60)
