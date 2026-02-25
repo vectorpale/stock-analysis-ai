@@ -58,11 +58,15 @@ with st.sidebar:
     st.divider()
 
     # 股票输入
-    symbol = st.text_input(
-        "股票代码",
+    symbol_input = st.text_input(
+        "股票代码或公司名",
         value="NVDA",
-        help="支持美股(NVDA)、港股(0700.HK)、A股(002230.SZ)",
+        help="支持代码(NVDA, 0700.HK)或公司名(美团, Meituan, 英伟达)",
     )
+    from src.utils.symbol_resolver import resolve_symbol
+    symbol = resolve_symbol(symbol_input)
+    if symbol != symbol_input:
+        st.caption(f"{symbol_input} → **{symbol}**")
 
     st.divider()
 

@@ -18,6 +18,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 load_dotenv()
 
 from src.agents.engine import DebateEngine
+from src.utils.symbol_resolver import resolve_symbol
 
 console = Console()
 
@@ -37,14 +38,15 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
-  python analyze.py NVDA              # 分析英伟达
+  python analyze.py NVDA              # 分析英伟达 (代码)
+  python analyze.py 美团              # 分析美团 (中文名 → 3690.HK)
+  python analyze.py Meituan           # 分析美团 (英文名 → 3690.HK)
   python analyze.py 0700.HK           # 分析腾讯
   python analyze.py 002230.SZ         # 分析科大讯飞
   python analyze.py NVDA -o report    # 保存报告到文件
-  python analyze.py NVDA --json       # 输出完整JSON结果
         """,
     )
-    parser.add_argument("symbol", help="股票代码 (如 NVDA, 0700.HK, 002230.SZ)")
+    parser.add_argument("symbol", help="股票代码或公司名 (如 NVDA, 美团, Meituan, 0700.HK)")
     parser.add_argument("-o", "--output", help="输出文件路径 (不含扩展名)")
     parser.add_argument("--json", action="store_true", help="输出完整JSON结果")
     parser.add_argument("-v", "--verbose", action="store_true", help="详细日志")
@@ -53,10 +55,15 @@ def main():
 
     setup_logging(args.verbose)
 
+    # 解析股票代码 (支持公司名)
+    symbol = resolve_symbol(args.symbol, config_path=args.config)
+    if symbol != args.symbol:
+        console.print(f"[dim]符号解析: {args.symbol} → {symbol}[/dim]")
+
     console.print(Panel(
         f"[bold cyan]个股深度分析系统[/bold cyan]\n"
         f"[dim]多Agent辩论模型 · 基本面深度分析[/dim]\n"
-        f"\n目标: [bold yellow]{args.symbol}[/bold yellow]",
+        f"\n目标: [bold yellow]{symbol}[/bold yellow]",
         title="Stock Deep Analysis",
         border_style="cyan",
     ))
@@ -91,7 +98,7 @@ def main():
 
     # 执行分析
     try:
-        result = engine.analyze(args.symbol, callbacks=callbacks)
+        result = engine.analyze(symbol, callbacks=callbacks)
     except KeyboardInterrupt:
         console.print("\n[yellow]分析已中断[/yellow]")
         sys.exit(0)

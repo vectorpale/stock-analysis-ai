@@ -18,6 +18,7 @@ load_dotenv()
 from src.data.fetcher import DataFetcher
 from src.paper_trading.portfolio import PortfolioManager
 from src.paper_trading.trader import Trader
+from src.utils.symbol_resolver import resolve_symbol
 
 # 默认自选股
 DEFAULT_WATCHLIST = ["LI", "3690.HK", "JOBY", "1810.HK", "GOOGL"]
@@ -85,14 +86,20 @@ with st.sidebar:
     st.subheader("自选股管理")
     current_watchlist = portfolio.get_watchlist()
     watchlist_text = st.text_area(
-        "股票代码 (每行一个)",
+        "股票代码或公司名 (每行一个)",
         value="\n".join(current_watchlist),
         height=150,
+        help="支持代码(NVDA)或公司名(美团, Meituan)",
     )
     if st.button("更新自选股"):
-        new_list = [s.strip() for s in watchlist_text.strip().split("\n") if s.strip()]
+        raw_list = [s.strip() for s in watchlist_text.strip().split("\n") if s.strip()]
+        new_list = [resolve_symbol(s) for s in raw_list]
         portfolio.set_watchlist(new_list)
-        st.success(f"已更新: {new_list}")
+        resolved_info = [f"{r}←{o}" for o, r in zip(raw_list, new_list) if o != r]
+        msg = f"已更新: {new_list}"
+        if resolved_info:
+            msg += f" (解析: {', '.join(resolved_info)})"
+        st.success(msg)
         st.rerun()
 
     st.divider()
