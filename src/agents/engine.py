@@ -56,7 +56,16 @@ class DebateEngine:
         with open(config_path, "r", encoding="utf-8") as f:
             self.config = yaml.safe_load(f)
 
-        self.client = Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+        if not api_key:
+            raise ValueError(
+                "未设置 ANTHROPIC_API_KEY 环境变量。\n"
+                "请通过以下方式之一设置:\n"
+                "  1. 创建 .env 文件: echo 'ANTHROPIC_API_KEY=sk-ant-...' > .env\n"
+                "  2. 导出环境变量: export ANTHROPIC_API_KEY=sk-ant-...\n"
+                "  3. GitHub Codespace: Settings → Secrets → 添加 ANTHROPIC_API_KEY"
+            )
+        self.client = Anthropic(api_key=api_key)
 
         # 模型配置
         models = self.config.get("models", {})
@@ -1022,7 +1031,11 @@ class DebateEngine:
             logger.debug(f"Token: +{input_tokens}in/{output_tokens}out ({model.split('-')[1]})")
             return response.content[0].text
         except Exception as e:
-            logger.error(f"LLM 调用失败 ({model}): {e}")
+            error_msg = str(e)
+            if "authentication" in error_msg.lower() or "api_key" in error_msg.lower() or "auth_token" in error_msg.lower():
+                logger.error(f"API 认证失败: {e}\n请检查 ANTHROPIC_API_KEY 是否正确设置")
+            else:
+                logger.error(f"LLM 调用失败 ({model}): {e}")
             return ""
 
     def get_token_usage(self) -> dict:
