@@ -1076,7 +1076,8 @@ class DebateEngine:
         lines.append(f"代码: {result.get('symbol', '')}")
         lines.append(f"行业: {summary.get('sector', '')} - {summary.get('industry', '')}")
         lines.append(f"分析时间: {result.get('timestamp', '')[:19]}")
-        lines.append(f"当前价格: ${summary.get('current_price', 'N/A')}")
+        cp = summary.get('current_price')
+        lines.append(f"当前价格: {'$' + f'{cp:.2f}' if cp else 'N/A (数据源不可用)'}")
         lines.append(f"对比竞品数: {summary.get('competitors_count', 0)}")
         lines.append("")
 
@@ -1102,6 +1103,8 @@ class DebateEngine:
         lines.append(f"建议: {cio.get('recommendation', 'N/A')}")
         lines.append(f"信心: {cio.get('confidence', 0)}%")
         lines.append(f"目标价: {cio.get('target_price', 'N/A')}")
+        if cio.get("target_price_basis"):
+            lines.append(f"目标价依据: {cio['target_price_basis']}")
         lines.append(f"止损位: {cio.get('stop_loss', 'N/A')}")
         lines.append(f"时间维度: {cio.get('time_horizon', 'N/A')}")
         lines.append(f"建议仓位: {cio.get('position_size_pct', 'N/A')}%")

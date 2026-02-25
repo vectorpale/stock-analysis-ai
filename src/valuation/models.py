@@ -656,12 +656,26 @@ def run_valuation(
     """
     sector = key_metrics.get("sector", "")
     industry = key_metrics.get("industry", "")
-    current_price = key_metrics.get("52w_high")  # 先取个placeholder
     shares = key_metrics.get("shares_outstanding")
 
-    # 从 technical indicators 或 key_metrics 获取当前价格
-    # 这里用 50d_avg 作为近似 (在 engine 中会传入准确价格)
-    price = key_metrics.get("50d_avg") or key_metrics.get("52w_high")
+    # 尝试多种来源获取当前价格 (优先级: 精确价格 > 近似价格)
+    price = None
+    for price_key in ("50d_avg", "target_price", "200d_avg", "52w_high"):
+        v = key_metrics.get(price_key)
+        if v and isinstance(v, (int, float)) and v > 0:
+            price = float(v)
+            break
+    # 还可以尝试从 52w_high/52w_low 的中间值
+    if not price:
+        hi = key_metrics.get("52w_high")
+        lo = key_metrics.get("52w_low")
+        if hi and lo:
+            try:
+                hi, lo = float(hi), float(lo)
+                if hi > 0 and lo > 0:
+                    price = (hi + lo) / 2
+            except (ValueError, TypeError):
+                pass
 
     if not price or price <= 0:
         logger.warning("估值失败: 无法获取当前价格")

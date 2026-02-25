@@ -433,6 +433,14 @@ class DataFetcher:
                 except (ValueError, TypeError):
                     result[key] = None
 
+        # 将 per-share 值转为总额 (估值模块需要总额)
+        shares = result.get("shares_outstanding")
+        if shares and shares > 0:
+            for per_share_key in ("free_cash_flow", "operating_cash_flow"):
+                v = result.get(per_share_key)
+                if v and isinstance(v, (int, float)):
+                    result[per_share_key] = v * shares
+
         self._set_json_cache(symbol, "fmp_metrics", result)
         logger.info(f"FMP 指标获取成功: {symbol}")
         return result

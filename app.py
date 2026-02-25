@@ -216,8 +216,10 @@ if analyze_btn and api_key:
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("建议", rec)
         col2.metric("信心", f"{conf}%")
-        col3.metric("目标价", f"${cio.get('target_price', 'N/A')}")
-        col4.metric("止损位", f"${cio.get('stop_loss', 'N/A')}")
+        tp = cio.get('target_price')
+        sl = cio.get('stop_loss')
+        col3.metric("目标价", f"${tp}" if tp else "N/A")
+        col4.metric("止损位", f"${sl}" if sl else "N/A")
 
         col5, col6, col7, col8 = st.columns(4)
         col5.metric("时间维度", cio.get("time_horizon", "N/A"))
