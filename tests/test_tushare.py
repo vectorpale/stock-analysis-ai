@@ -41,7 +41,7 @@ def get_pro():
     return pro
 
 
-def test_section(name):
+def _print_section(name):
     print(f"\n{'='*60}")
     print(f"  {name}")
     print(f"{'='*60}")
@@ -55,7 +55,7 @@ def main():
     # =====================================================
     # A股测试
     # =====================================================
-    test_section("A股: 日线行情 (000001.SZ 平安银行)")
+    _print_section("A股: 日线行情 (000001.SZ 平安银行)")
     try:
         df = pro.daily(ts_code='000001.SZ', start_date='20240101', end_date='20240131')
         if df is not None and not df.empty:
@@ -69,7 +69,7 @@ def main():
         print(f"✗ 失败: {e}")
         failed += 1
 
-    test_section("A股: 每日基本指标 (daily_basic)")
+    _print_section("A股: 每日基本指标 (daily_basic)")
     try:
         df = pro.daily_basic(ts_code='600519.SH',
                              fields='ts_code,trade_date,close,pe,pe_ttm,pb,ps_ttm,total_mv,circ_mv')
@@ -84,7 +84,7 @@ def main():
         print(f"✗ 失败: {e}")
         failed += 1
 
-    test_section("A股: 公司信息 (stock_company)")
+    _print_section("A股: 公司信息 (stock_company)")
     try:
         df = pro.stock_company(ts_code='600519.SH')
         if df is not None and not df.empty:
@@ -99,7 +99,7 @@ def main():
         print(f"✗ 失败: {e}")
         failed += 1
 
-    test_section("A股: 财务指标 (fina_indicator)")
+    _print_section("A股: 财务指标 (fina_indicator)")
     try:
         df = pro.fina_indicator(ts_code='600519.SH')
         if df is not None and not df.empty:
@@ -116,7 +116,7 @@ def main():
         print(f"✗ 失败: {e}")
         failed += 1
 
-    test_section("A股: 利润表 (income)")
+    _print_section("A股: 利润表 (income)")
     try:
         df = pro.income(ts_code='600519.SH')
         if df is not None and not df.empty:
@@ -132,7 +132,7 @@ def main():
         print(f"✗ 失败: {e}")
         failed += 1
 
-    test_section("A股: 资产负债表 (balancesheet)")
+    _print_section("A股: 资产负债表 (balancesheet)")
     try:
         df = pro.balancesheet(ts_code='600519.SH')
         if df is not None and not df.empty:
@@ -149,7 +149,7 @@ def main():
         print(f"✗ 失败: {e}")
         failed += 1
 
-    test_section("A股: 现金流量表 (cashflow)")
+    _print_section("A股: 现金流量表 (cashflow)")
     try:
         df = pro.cashflow(ts_code='600519.SH')
         if df is not None and not df.empty:
@@ -169,7 +169,7 @@ def main():
     # =====================================================
     # 港股测试
     # =====================================================
-    test_section("港股: 日线行情 (hk_daily 00700.HK 腾讯)")
+    _print_section("港股: 日线行情 (hk_daily 00700.HK 腾讯)")
     try:
         df = pro.hk_daily(ts_code='00700.HK', start_date='20240101', end_date='20240131')
         if df is not None and not df.empty:
@@ -183,7 +183,7 @@ def main():
         print(f"✗ 失败: {e}")
         failed += 1
 
-    test_section("港股: 基本信息 (hk_basic)")
+    _print_section("港股: 基本信息 (hk_basic)")
     try:
         df = pro.hk_basic(ts_code='00700.HK')
         if df is not None and not df.empty:
@@ -211,7 +211,7 @@ def main():
         print(f"✗ 失败: {e}")
         failed += 1
 
-    test_section("港股: 复权行情 (hk_daily_adj 含市值/股本)")
+    _print_section("港股: 复权行情 (hk_daily_adj 含市值/股本)")
     try:
         df = pro.hk_daily_adj(ts_code='00700.HK', start_date='20240101', end_date='20240131')
         if df is not None and not df.empty:
@@ -226,7 +226,7 @@ def main():
         print(f"✗ 失败: {e}")
         failed += 1
 
-    test_section("港股: 财务指标 (hk_fina_indicator, 需 15000 积分)")
+    _print_section("港股: 财务指标 (hk_fina_indicator, 需 15000 积分)")
     try:
         df = pro.hk_fina_indicator(ts_code='00700.HK')
         if df is not None and not df.empty:
@@ -242,7 +242,7 @@ def main():
         print(f"✗ 失败 (可能积分不足): {e}")
         failed += 1
 
-    test_section("说明: Tushare 不提供港股原始财报 (无 hk_income/hk_balancesheet/hk_cashflow)")
+    _print_section("说明: Tushare 不提供港股原始财报 (无 hk_income/hk_balancesheet/hk_cashflow)")
     print("  港股财报将自动降级到 AkShare 或 yfinance 获取")
     print("  这是 Tushare API 的已知限制，非程序错误")
 
