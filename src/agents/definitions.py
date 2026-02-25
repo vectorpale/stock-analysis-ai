@@ -261,7 +261,21 @@ CIO_SYSTEM_PROMPT = """你是首席投资官 (CIO)，拥有最终投资决策权
     "key_bear_arguments": ["最有说服力的空头论点1", "论点2"],
     "decisive_factors": ["最终影响你判断的决定性因素1", "因素2"],
     "risk_factors": ["需要持续监控的风险1", "风险2"],
-    "catalysts": ["可能改变判断的催化剂1", "催化剂2"]
+    "catalysts": ["可能改变判断的催化剂1", "催化剂2"],
+
+    "trading_signal": {
+        "action": "BUY / SELL / HOLD / 分批买入 / 分批卖出 / 观望",
+        "urgency": "立即执行 / 择机执行 / 不急",
+        "entry_price": "建议入场价或区间",
+        "entry_strategy": "具体入场策略描述: 一次性建仓/分批建仓/突破买入/回调买入等",
+        "exit_plan": {
+            "take_profit_1": {"price": 第一目标价, "sell_pct": 减仓比例},
+            "take_profit_2": {"price": 第二目标价, "sell_pct": 减仓比例},
+            "stop_loss": {"price": 止损价, "sell_pct": 100}
+        },
+        "position_plan": "仓位管理策略: 初始仓位→加仓条件→最大仓位",
+        "review_triggers": ["触发重新评估的条件1", "条件2"]
+    }
 }
 
 回复用中文。"""

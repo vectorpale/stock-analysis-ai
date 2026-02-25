@@ -664,6 +664,44 @@ class DebateEngine:
             for r in risk_factors:
                 lines.append(f"  !! {r}")
 
+        # 交易信号与策略
+        signal = cio.get("trading_signal", {})
+        if signal:
+            lines.append("")
+            lines.append("=" * 60)
+            lines.append("交易信号与执行策略")
+            lines.append("=" * 60)
+            lines.append(f"交易动作: {signal.get('action', 'N/A')}")
+            lines.append(f"紧迫程度: {signal.get('urgency', 'N/A')}")
+            lines.append(f"建议入场价: {signal.get('entry_price', 'N/A')}")
+            lines.append("")
+            lines.append(f"入场策略:")
+            lines.append(f"  {signal.get('entry_strategy', 'N/A')}")
+            lines.append("")
+            lines.append(f"仓位管理:")
+            lines.append(f"  {signal.get('position_plan', 'N/A')}")
+            lines.append("")
+
+            exit_plan = signal.get("exit_plan", {})
+            if exit_plan:
+                lines.append("退出计划:")
+                tp1 = exit_plan.get("take_profit_1", {})
+                tp2 = exit_plan.get("take_profit_2", {})
+                sl = exit_plan.get("stop_loss", {})
+                if tp1:
+                    lines.append(f"  止盈1: 价格 {tp1.get('price', 'N/A')} → 减仓 {tp1.get('sell_pct', 'N/A')}%")
+                if tp2:
+                    lines.append(f"  止盈2: 价格 {tp2.get('price', 'N/A')} → 减仓 {tp2.get('sell_pct', 'N/A')}%")
+                if sl:
+                    lines.append(f"  止损:  价格 {sl.get('price', 'N/A')} → 清仓 {sl.get('sell_pct', 'N/A')}%")
+
+            triggers = signal.get("review_triggers", [])
+            if triggers:
+                lines.append("")
+                lines.append("重新评估触发条件:")
+                for t in triggers:
+                    lines.append(f"  -> {t}")
+
         lines.append("")
         lines.append("=" * 60)
         lines.append("免责声明: 本分析由AI生成，仅供参考，不构成投资建议。")
