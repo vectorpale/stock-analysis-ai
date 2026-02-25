@@ -64,6 +64,6 @@ python run_daily.py --dry-run            # 试运行不交易
 
 ## 数据源优先级
 
-- 美股: yfinance → AkShare
-- 港股: AkShare → yfinance
-- A股: AkShare → Tushare → BaoStock
+- 美股: FMP → yfinance → AkShare
+- 港股: Tushare → AkShare → yfinance
+- A股: Tushare → AkShare → BaoStock

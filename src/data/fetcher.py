@@ -4,8 +4,8 @@
 
 数据源优先级:
   美股: FMP → yfinance → AkShare
-  港股: AkShare → yfinance
-  A股: AkShare → Tushare → BaoStock
+  港股: Tushare → AkShare → yfinance
+  A股: Tushare → AkShare → BaoStock
 """
 
 import json
@@ -37,6 +37,8 @@ class DataFetcher:
         self.cache_hours = cache_hours
         self.fmp_key = os.environ.get("FMP_API_KEY", "").strip()
         self._fmp_base = "https://financialmodelingprep.com/api/v3"
+        self._tushare_token = os.environ.get("TUSHARE_TOKEN", "").strip()
+        self._tushare_url = os.environ.get("TUSHARE_URL", "").strip()
 
     # ------------------------------------------------------------------
     # 市场检测
@@ -144,13 +146,15 @@ class DataFetcher:
             if df is None:
                 df = self._fetch_akshare_us(symbol, period)
         elif market == "hk":
-            df = self._fetch_akshare_hk(symbol, period)
+            df = self._fetch_tushare_hk(symbol, period)
+            if df is None:
+                df = self._fetch_akshare_hk(symbol, period)
             if df is None:
                 df = self._fetch_yfinance(symbol, period)
         elif market == "a_share":
-            df = self._fetch_akshare_cn(symbol, period)
+            df = self._fetch_tushare(symbol, period)
             if df is None:
-                df = self._fetch_tushare(symbol, period)
+                df = self._fetch_akshare_cn(symbol, period)
             if df is None:
                 df = self._fetch_baostock(symbol, period)
 
@@ -173,6 +177,13 @@ class DataFetcher:
         # FMP 优先 (美股)
         if market == "us" and self.fmp_key:
             result = self._fetch_fmp_financials(symbol)
+            if result and any(v for v in result.values() if v):
+                return result
+
+        # Tushare (A股/港股)
+        if market in ("a_share", "hk") and self._tushare_token:
+            fetch_fn = self._fetch_tushare_hk_financials if market == "hk" else self._fetch_tushare_financials
+            result = fetch_fn(symbol)
             if result and any(v for v in result.values() if v):
                 return result
 
@@ -200,6 +211,13 @@ class DataFetcher:
         # FMP 优先 (美股)
         if market == "us" and self.fmp_key:
             result = self._fetch_fmp_key_metrics(symbol)
+            if result and not result.get("error"):
+                return result
+
+        # Tushare (A股/港股)
+        if market in ("a_share", "hk") and self._tushare_token:
+            fetch_fn = self._fetch_tushare_hk_key_metrics if market == "hk" else self._fetch_tushare_key_metrics
+            result = fetch_fn(symbol)
             if result and not result.get("error"):
                 return result
 
@@ -601,23 +619,476 @@ class DataFetcher:
             logger.warning(f"akshare CN 失败 {symbol}: {e}")
         return None
 
-    def _fetch_tushare(self, symbol: str, period: str) -> Optional[pd.DataFrame]:
-        token = os.environ.get("TUSHARE_TOKEN")
-        if not token:
+    def _get_tushare_pro(self):
+        """获取已配置的 Tushare Pro API 实例 (支持自定义镜像地址)"""
+        if not self._tushare_token:
             return None
         try:
             import tushare as ts
-            pro = ts.pro_api(token)
-            ts_code = symbol.replace(".SH", ".SH").replace(".SZ", ".SZ")
+            pro = ts.pro_api(self._tushare_token)
+            pro._DataApi__token = self._tushare_token
+            if self._tushare_url:
+                pro._DataApi__http_url = self._tushare_url
+            return pro
+        except Exception as e:
+            logger.warning(f"tushare 初始化失败: {e}")
+            return None
+
+    def _fetch_tushare(self, symbol: str, period: str) -> Optional[pd.DataFrame]:
+        pro = self._get_tushare_pro()
+        if not pro:
+            return None
+        try:
+            ts_code = symbol  # 已经是 600519.SH 格式
             end_date = datetime.now().strftime("%Y%m%d")
             start_date = self._period_to_start(period).strftime("%Y%m%d")
             df = pro.daily(ts_code=ts_code, start_date=start_date, end_date=end_date)
             if df is not None and not df.empty:
-                logger.info(f"tushare 数据获取成功: {symbol}")
+                logger.info(f"tushare 日线获取成功: {symbol} ({len(df)} 条)")
                 return df
         except Exception as e:
-            logger.warning(f"tushare 失败 {symbol}: {e}")
+            logger.warning(f"tushare 日线失败 {symbol}: {e}")
         return None
+
+    def _fetch_tushare_financials(self, symbol: str) -> dict:
+        """Tushare 财务报表 (利润表、资产负债表、现金流)"""
+        cached = self._get_json_cached(symbol, "ts_financials")
+        if cached:
+            logger.info(f"tushare 财报 (缓存): {symbol}")
+            return cached
+
+        pro = self._get_tushare_pro()
+        if not pro:
+            return {}
+
+        result = {}
+        ts_code = symbol
+
+        try:
+            # 利润表 (最近8期)
+            df = pro.income(ts_code=ts_code)
+            if df is not None and not df.empty:
+                result["income_statement"] = self._tushare_df_to_dict(df.head(4))
+                result["quarterly_income"] = self._tushare_df_to_dict(df.head(8))
+                logger.debug(f"tushare 利润表: {symbol} ({len(df)} 条)")
+        except Exception as e:
+            logger.warning(f"tushare 利润表失败 {symbol}: {e}")
+
+        try:
+            # 资产负债表
+            df = pro.balancesheet(ts_code=ts_code)
+            if df is not None and not df.empty:
+                result["balance_sheet"] = self._tushare_df_to_dict(df.head(4))
+                result["quarterly_balance"] = self._tushare_df_to_dict(df.head(8))
+                logger.debug(f"tushare 资产负债表: {symbol}")
+        except Exception as e:
+            logger.warning(f"tushare 资产负债表失败 {symbol}: {e}")
+
+        try:
+            # 现金流量表
+            df = pro.cashflow(ts_code=ts_code)
+            if df is not None and not df.empty:
+                result["cash_flow"] = self._tushare_df_to_dict(df.head(4))
+                result["quarterly_cashflow"] = self._tushare_df_to_dict(df.head(8))
+                logger.debug(f"tushare 现金流量表: {symbol}")
+        except Exception as e:
+            logger.warning(f"tushare 现金流量表失败 {symbol}: {e}")
+
+        if any(v for v in result.values() if v):
+            logger.info(f"tushare 财报获取成功: {symbol}")
+            self._set_json_cache(symbol, "ts_financials", result)
+        return result
+
+    def _fetch_tushare_key_metrics(self, symbol: str) -> dict:
+        """Tushare 关键指标 (公司信息 + 财务指标 + 每日指标)"""
+        cached = self._get_json_cached(symbol, "ts_metrics")
+        if cached:
+            logger.info(f"tushare 指标 (缓存): {symbol}")
+            return cached
+
+        pro = self._get_tushare_pro()
+        if not pro:
+            return {"company_name": symbol, "error": "tushare not available"}
+
+        ts_code = symbol
+        result = {"company_name": symbol}
+
+        # 1. 公司基本信息
+        try:
+            df = pro.stock_company(ts_code=ts_code)
+            if df is not None and not df.empty:
+                row = df.iloc[0]
+                result["company_name"] = row.get("com_name", symbol)
+                result["sector"] = row.get("industry", "Unknown")
+                result["industry"] = row.get("industry", "Unknown")
+        except Exception as e:
+            logger.warning(f"tushare 公司信息失败 {symbol}: {e}")
+
+        # 2. 每日基本指标 (PE, PB, 总市值, 流通市值等)
+        try:
+            df = pro.daily_basic(ts_code=ts_code, fields=(
+                "ts_code,trade_date,close,pe,pe_ttm,pb,ps,ps_ttm,"
+                "total_mv,circ_mv,turnover_rate,volume_ratio"
+            ))
+            if df is not None and not df.empty:
+                row = df.iloc[0]  # 最新一天
+                result["pe_ratio"] = self._safe_float(row.get("pe_ttm"))
+                result["forward_pe"] = self._safe_float(row.get("pe"))
+                result["pb_ratio"] = self._safe_float(row.get("pb"))
+                result["ps_ratio"] = self._safe_float(row.get("ps_ttm"))
+                result["market_cap"] = self._safe_float(row.get("total_mv"))
+                if result["market_cap"]:
+                    result["market_cap"] *= 10000  # 万元 → 元
+                result["float_shares_mv"] = self._safe_float(row.get("circ_mv"))
+                result["50d_avg"] = self._safe_float(row.get("close"))
+                result["volume_ratio"] = self._safe_float(row.get("volume_ratio"))
+        except Exception as e:
+            logger.warning(f"tushare daily_basic 失败 {symbol}: {e}")
+
+        # 3. 财务指标 (ROE, 利润率, 增长率等)
+        try:
+            df = pro.fina_indicator(ts_code=ts_code)
+            if df is not None and not df.empty:
+                row = df.iloc[0]  # 最新一期
+                result["roe"] = self._safe_float(row.get("roe"))
+                if result["roe"]:
+                    result["roe"] /= 100  # 百分比 → 小数
+                result["roa"] = self._safe_float(row.get("roa"))
+                if result["roa"]:
+                    result["roa"] /= 100
+                result["gross_margin"] = self._safe_float(row.get("grossprofit_margin"))
+                if result["gross_margin"]:
+                    result["gross_margin"] /= 100
+                result["profit_margin"] = self._safe_float(row.get("netprofit_margin"))
+                if result["profit_margin"]:
+                    result["profit_margin"] /= 100
+                result["operating_margin"] = self._safe_float(row.get("profit_to_op"))
+                if result["operating_margin"]:
+                    result["operating_margin"] /= 100
+                result["current_ratio"] = self._safe_float(row.get("currentratio"))
+                result["debt_to_equity"] = self._safe_float(row.get("debt_to_assets"))
+                result["eps"] = self._safe_float(row.get("eps"))
+                result["revenue_growth"] = self._safe_float(row.get("or_yoy"))
+                if result["revenue_growth"]:
+                    result["revenue_growth"] /= 100
+                result["earnings_growth"] = self._safe_float(row.get("netprofit_yoy"))
+                if result["earnings_growth"]:
+                    result["earnings_growth"] /= 100
+                result["peg_ratio"] = None
+                if result.get("pe_ratio") and result.get("earnings_growth") and result["earnings_growth"] > 0:
+                    result["peg_ratio"] = result["pe_ratio"] / (result["earnings_growth"] * 100)
+                result["dividend_yield"] = self._safe_float(row.get("dp_ratio"))
+                if result["dividend_yield"]:
+                    result["dividend_yield"] /= 100
+
+                # 从最新两期计算收入和净利
+                if len(df) >= 1:
+                    result["net_income"] = self._safe_float(row.get("netprofit_margin"))  # 需要从利润表获取
+        except Exception as e:
+            logger.warning(f"tushare 财务指标失败 {symbol}: {e}")
+
+        # 4. 利润表获取收入和净利润绝对值
+        try:
+            inc = pro.income(ts_code=ts_code)
+            if inc is not None and not inc.empty:
+                latest = inc.iloc[0]
+                result["revenue"] = self._safe_float(latest.get("revenue"))
+                result["net_income"] = self._safe_float(latest.get("n_income"))
+        except Exception as e:
+            logger.warning(f"tushare 利润表失败 {symbol}: {e}")
+
+        # 5. 现金流获取 FCF
+        try:
+            cf = pro.cashflow(ts_code=ts_code)
+            if cf is not None and not cf.empty:
+                latest = cf.iloc[0]
+                result["operating_cash_flow"] = self._safe_float(latest.get("n_cashflow_act"))
+                result["free_cash_flow"] = self._safe_float(latest.get("free_cashflow"))
+                if not result["free_cash_flow"]:
+                    # 估算: 经营现金流 - 资本支出
+                    ocf = result.get("operating_cash_flow")
+                    capex = self._safe_float(latest.get("c_pay_acq_const_fiolta"))
+                    if ocf and capex:
+                        result["free_cash_flow"] = ocf - abs(capex)
+        except Exception as e:
+            logger.warning(f"tushare 现金流失败 {symbol}: {e}")
+
+        # 6. 资产负债表获取总负债和现金
+        try:
+            bs_df = pro.balancesheet(ts_code=ts_code)
+            if bs_df is not None and not bs_df.empty:
+                latest = bs_df.iloc[0]
+                result["total_debt"] = self._safe_float(latest.get("total_liab"))
+                result["total_cash"] = self._safe_float(latest.get("money_cap"))
+                result["shares_outstanding"] = self._safe_float(latest.get("total_share"))
+                if result["shares_outstanding"]:
+                    result["shares_outstanding"] *= 10000  # 万股 → 股
+                result["float_shares"] = self._safe_float(latest.get("float_share"))
+                if result["float_shares"]:
+                    result["float_shares"] *= 10000
+        except Exception as e:
+            logger.warning(f"tushare 资产负债表失败 {symbol}: {e}")
+
+        # 补充缺失字段默认值
+        defaults = {
+            "enterprise_value": None, "ev_ebitda": None, "ev_revenue": None,
+            "beta": None, "52w_high": None, "52w_low": None, "200d_avg": None,
+            "avg_volume": None, "insider_pct": None, "institution_pct": None,
+            "short_ratio": None, "target_price": None, "analyst_rating": None,
+            "num_analysts": None,
+        }
+        for k, v in defaults.items():
+            if k not in result:
+                result[k] = v
+
+        if result.get("company_name") != symbol or result.get("pe_ratio"):
+            self._set_json_cache(symbol, "ts_metrics", result)
+            logger.info(f"tushare 指标获取成功: {symbol}")
+        return result
+
+    @staticmethod
+    def _safe_float(val) -> Optional[float]:
+        """安全转换为 float, None/NaN 返回 None"""
+        if val is None:
+            return None
+        try:
+            f = float(val)
+            return None if pd.isna(f) else f
+        except (ValueError, TypeError):
+            return None
+
+    @staticmethod
+    def _tushare_df_to_dict(df: pd.DataFrame) -> dict:
+        """将 tushare DataFrame 转为 {end_date: {col: value}} 格式"""
+        result = {}
+        skip_cols = {"ts_code", "ann_date", "f_ann_date", "comp_type",
+                     "report_type", "end_type", "update_flag"}
+        for _, row in df.iterrows():
+            date_key = str(row.get("end_date", "unknown"))
+            items = {}
+            for col, val in row.items():
+                if col not in skip_cols and col != "end_date" and val is not None:
+                    try:
+                        f = float(val)
+                        if not pd.isna(f):
+                            items[col] = f
+                    except (ValueError, TypeError):
+                        items[col] = val
+            if items:
+                result[date_key] = items
+        return result
+
+    # ==================================================================
+    # Tushare 港股数据
+    # ==================================================================
+    def _to_hk_ts_code(self, symbol: str) -> str:
+        """将 00700.HK 格式转为 Tushare 的 00700.HK 格式 (保持一致)"""
+        return symbol  # Tushare 港股格式与我们一致
+
+    def _fetch_tushare_hk(self, symbol: str, period: str) -> Optional[pd.DataFrame]:
+        """Tushare 港股日线行情"""
+        pro = self._get_tushare_pro()
+        if not pro:
+            return None
+        try:
+            ts_code = self._to_hk_ts_code(symbol)
+            end_date = datetime.now().strftime("%Y%m%d")
+            start_date = self._period_to_start(period).strftime("%Y%m%d")
+            df = pro.hk_daily(ts_code=ts_code, start_date=start_date, end_date=end_date)
+            if df is not None and not df.empty:
+                logger.info(f"tushare 港股日线获取成功: {symbol} ({len(df)} 条)")
+                return df
+        except Exception as e:
+            logger.warning(f"tushare 港股日线失败 {symbol}: {e}")
+        return None
+
+    def _fetch_tushare_hk_financials(self, symbol: str) -> dict:
+        """Tushare 港股财务报表"""
+        cached = self._get_json_cached(symbol, "ts_hk_financials")
+        if cached:
+            logger.info(f"tushare 港股财报 (缓存): {symbol}")
+            return cached
+
+        pro = self._get_tushare_pro()
+        if not pro:
+            return {}
+
+        ts_code = self._to_hk_ts_code(symbol)
+        result = {}
+
+        for api_name, key, qkey in [
+            ("hk_income", "income_statement", "quarterly_income"),
+            ("hk_balancesheet", "balance_sheet", "quarterly_balance"),
+            ("hk_cashflow", "cash_flow", "quarterly_cashflow"),
+        ]:
+            try:
+                func = getattr(pro, api_name, None)
+                if func:
+                    df = func(ts_code=ts_code)
+                    if df is not None and not df.empty:
+                        result[key] = self._tushare_df_to_dict(df.head(4))
+                        result[qkey] = self._tushare_df_to_dict(df.head(8))
+                        logger.debug(f"tushare {api_name}: {symbol} ({len(df)} 条)")
+            except Exception as e:
+                logger.warning(f"tushare {api_name} 失败 {symbol}: {e}")
+
+        if any(v for v in result.values() if v):
+            logger.info(f"tushare 港股财报获取成功: {symbol}")
+            self._set_json_cache(symbol, "ts_hk_financials", result)
+        return result
+
+    def _fetch_tushare_hk_key_metrics(self, symbol: str) -> dict:
+        """Tushare 港股关键指标"""
+        cached = self._get_json_cached(symbol, "ts_hk_metrics")
+        if cached:
+            logger.info(f"tushare 港股指标 (缓存): {symbol}")
+            return cached
+
+        pro = self._get_tushare_pro()
+        if not pro:
+            return {"company_name": symbol, "error": "tushare not available"}
+
+        ts_code = self._to_hk_ts_code(symbol)
+        result = {"company_name": symbol}
+
+        # 1. 港股基本信息
+        try:
+            df = pro.hk_basic(ts_code=ts_code)
+            if df is not None and not df.empty:
+                row = df.iloc[0]
+                result["company_name"] = row.get("name", symbol)
+                result["sector"] = row.get("industry", "Unknown")
+                result["industry"] = row.get("industry", "Unknown")
+            else:
+                # 尝试通过 list_status 查询
+                df = pro.hk_basic(list_status="L")
+                if df is not None and not df.empty:
+                    row = df[df["ts_code"] == ts_code]
+                    if not row.empty:
+                        row = row.iloc[0]
+                        result["company_name"] = row.get("name", symbol)
+                        result["sector"] = row.get("industry", "Unknown")
+                        result["industry"] = row.get("industry", "Unknown")
+        except Exception as e:
+            logger.warning(f"tushare 港股基本信息失败 {symbol}: {e}")
+
+        # 2. 港股日线获取最新价格和成交量
+        try:
+            df = pro.hk_daily(ts_code=ts_code)
+            if df is not None and not df.empty:
+                latest = df.iloc[0]
+                result["50d_avg"] = self._safe_float(latest.get("close"))
+                result["avg_volume"] = self._safe_float(latest.get("vol"))
+                # 计算 52 周高低
+                if len(df) >= 20:
+                    period_df = df.head(min(252, len(df)))
+                    result["52w_high"] = self._safe_float(period_df["high"].max())
+                    result["52w_low"] = self._safe_float(period_df["low"].min())
+                    if len(period_df) >= 200:
+                        result["200d_avg"] = self._safe_float(period_df["close"].head(200).mean())
+        except Exception as e:
+            logger.warning(f"tushare 港股日线失败 {symbol}: {e}")
+
+        # 3. 港股财务指标 (如有 hk_fina_indicator)
+        try:
+            func = getattr(pro, "hk_fina_indicator", None)
+            if func:
+                df = func(ts_code=ts_code)
+                if df is not None and not df.empty:
+                    row = df.iloc[0]
+                    result["eps"] = self._safe_float(row.get("eps"))
+                    result["roe"] = self._safe_float(row.get("roe"))
+                    if result["roe"]:
+                        result["roe"] /= 100
+                    result["gross_margin"] = self._safe_float(row.get("grossprofit_margin"))
+                    if result["gross_margin"]:
+                        result["gross_margin"] /= 100
+                    result["profit_margin"] = self._safe_float(row.get("netprofit_margin"))
+                    if result["profit_margin"]:
+                        result["profit_margin"] /= 100
+        except Exception as e:
+            logger.debug(f"tushare hk_fina_indicator 失败 {symbol}: {e}")
+
+        # 4. 从港股财报获取收入和利润
+        try:
+            func = getattr(pro, "hk_income", None)
+            if func:
+                df = func(ts_code=ts_code)
+                if df is not None and not df.empty:
+                    latest = df.iloc[0]
+                    result["revenue"] = self._safe_float(latest.get("revenue"))
+                    result["net_income"] = self._safe_float(latest.get("net_income") or latest.get("n_income"))
+                    # 两期增长率
+                    if len(df) >= 2:
+                        rev_new = self._safe_float(latest.get("revenue"))
+                        rev_old = self._safe_float(df.iloc[1].get("revenue"))
+                        if rev_new and rev_old and rev_old != 0:
+                            result["revenue_growth"] = (rev_new - rev_old) / abs(rev_old)
+                        ni_new = self._safe_float(latest.get("net_income") or latest.get("n_income"))
+                        ni_old = self._safe_float(df.iloc[1].get("net_income") or df.iloc[1].get("n_income"))
+                        if ni_new and ni_old and ni_old != 0:
+                            result["earnings_growth"] = (ni_new - ni_old) / abs(ni_old)
+        except Exception as e:
+            logger.warning(f"tushare 港股利润表失败 {symbol}: {e}")
+
+        # 5. 港股现金流
+        try:
+            func = getattr(pro, "hk_cashflow", None)
+            if func:
+                df = func(ts_code=ts_code)
+                if df is not None and not df.empty:
+                    latest = df.iloc[0]
+                    result["operating_cash_flow"] = self._safe_float(latest.get("n_cashflow_act"))
+                    result["free_cash_flow"] = self._safe_float(latest.get("free_cashflow"))
+        except Exception as e:
+            logger.warning(f"tushare 港股现金流失败 {symbol}: {e}")
+
+        # 6. 港股资产负债表
+        try:
+            func = getattr(pro, "hk_balancesheet", None)
+            if func:
+                df = func(ts_code=ts_code)
+                if df is not None and not df.empty:
+                    latest = df.iloc[0]
+                    result["total_debt"] = self._safe_float(latest.get("total_liab"))
+                    result["total_cash"] = self._safe_float(latest.get("money_cap") or latest.get("cash_equivalents"))
+                    result["shares_outstanding"] = self._safe_float(latest.get("total_share"))
+        except Exception as e:
+            logger.warning(f"tushare 港股资产负债表失败 {symbol}: {e}")
+
+        # 补充缺失字段默认值
+        defaults = {
+            "enterprise_value": None, "ev_ebitda": None, "ev_revenue": None,
+            "pe_ratio": None, "forward_pe": None, "peg_ratio": None,
+            "pb_ratio": None, "ps_ratio": None, "operating_margin": None,
+            "roa": None, "current_ratio": None, "debt_to_equity": None,
+            "beta": None, "52w_high": None, "52w_low": None, "200d_avg": None,
+            "avg_volume": None, "insider_pct": None, "institution_pct": None,
+            "short_ratio": None, "target_price": None, "analyst_rating": None,
+            "num_analysts": None, "dividend_yield": None, "market_cap": None,
+            "float_shares": None,
+        }
+        for k, v in defaults.items():
+            if k not in result:
+                result[k] = v
+
+        # 尝试从价格和股本估算市值和PE
+        price = result.get("50d_avg")
+        shares = result.get("shares_outstanding")
+        if price and shares and shares > 0:
+            if not result.get("market_cap"):
+                result["market_cap"] = price * shares
+            ni = result.get("net_income")
+            if ni and ni > 0 and not result.get("pe_ratio"):
+                result["pe_ratio"] = result["market_cap"] / ni
+            rev = result.get("revenue")
+            if rev and rev > 0 and not result.get("ps_ratio"):
+                result["ps_ratio"] = result["market_cap"] / rev
+
+        if result.get("company_name") != symbol or result.get("revenue"):
+            self._set_json_cache(symbol, "ts_hk_metrics", result)
+            logger.info(f"tushare 港股指标获取成功: {symbol}")
+        return result
 
     def _fetch_baostock(self, symbol: str, period: str) -> Optional[pd.DataFrame]:
         try:
