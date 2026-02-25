@@ -27,8 +27,10 @@ env/
 # Data & Cache
 data/cache/
 data/memory/
+data/paper_trading/
 *.parquet
 *.pkl
+*.db
 
 # OS
 .DS_Store

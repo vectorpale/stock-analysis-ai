@@ -29,8 +29,12 @@ src/agents/definitions.py # Agent角色定义与提示词
 src/agents/engine.py     # 多轮辩论引擎核心
 src/agents/memory.py     # FinMem三层决策记忆
 src/utils/helpers.py     # JSON解析、收敛计算等工具
+src/paper_trading/portfolio.py  # 模拟盘组合管理器 (SQLite)
+src/paper_trading/trader.py     # 交易执行器 (信号→交易映射)
 analyze.py               # CLI入口
-app.py                   # Streamlit Web UI
+app.py                   # Streamlit 分析 Web UI
+paper_trading.py         # Streamlit 模拟盘仪表盘
+run_daily.py             # 每日定时分析+交易脚本
 ```
 
 ## 开发指南
@@ -46,8 +50,16 @@ cp .env.example .env
 # CLI 运行
 python analyze.py NVDA
 
-# Web UI 运行
+# Web UI 运行 (深度分析)
 streamlit run app.py
+
+# 模拟盘仪表盘
+streamlit run paper_trading.py
+
+# 每日定时分析+自动交易
+python run_daily.py                      # 分析全部自选股
+python run_daily.py --snapshot-only      # 仅更新净值快照
+python run_daily.py --dry-run            # 试运行不交易
 ```
 
 ## 数据源优先级
