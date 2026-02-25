@@ -1005,10 +1005,29 @@ class DebateEngine:
                 system=system,
                 messages=[{"role": "user", "content": user_message}],
             )
+            # 统计 token 用量
+            usage = response.usage
+            input_tokens = getattr(usage, "input_tokens", 0)
+            output_tokens = getattr(usage, "output_tokens", 0)
+            if not hasattr(self, "_token_usage"):
+                self._token_usage = {"calls": 0, "input_tokens": 0, "output_tokens": 0, "by_model": {}}
+            self._token_usage["calls"] += 1
+            self._token_usage["input_tokens"] += input_tokens
+            self._token_usage["output_tokens"] += output_tokens
+            if model not in self._token_usage["by_model"]:
+                self._token_usage["by_model"][model] = {"calls": 0, "input_tokens": 0, "output_tokens": 0}
+            self._token_usage["by_model"][model]["calls"] += 1
+            self._token_usage["by_model"][model]["input_tokens"] += input_tokens
+            self._token_usage["by_model"][model]["output_tokens"] += output_tokens
+            logger.debug(f"Token: +{input_tokens}in/{output_tokens}out ({model.split('-')[1]})")
             return response.content[0].text
         except Exception as e:
             logger.error(f"LLM 调用失败 ({model}): {e}")
             return ""
+
+    def get_token_usage(self) -> dict:
+        """返回累计 token 用量统计"""
+        return getattr(self, "_token_usage", {"calls": 0, "input_tokens": 0, "output_tokens": 0, "by_model": {}})
 
     # ==================================================================
     # 报告生成

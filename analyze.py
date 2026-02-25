@@ -102,6 +102,22 @@ def main():
             traceback.print_exc()
         sys.exit(1)
 
+    # Token 用量统计
+    usage = engine.get_token_usage()
+    if usage["calls"] > 0:
+        console.print(Panel(
+            f"[bold]API 调用: {usage['calls']}次[/bold]\n"
+            f"输入 tokens: {usage['input_tokens']:,}\n"
+            f"输出 tokens: {usage['output_tokens']:,}\n"
+            f"[bold]合计 tokens: {usage['input_tokens'] + usage['output_tokens']:,}[/bold]\n"
+            + "\n".join(
+                f"  {m}: {s['calls']}次, {s['input_tokens']:,}in / {s['output_tokens']:,}out"
+                for m, s in usage.get("by_model", {}).items()
+            ),
+            title="Token Usage",
+            border_style="yellow",
+        ))
+
     # 输出报告
     report = DebateEngine.generate_report(result)
     console.print(f"\n{report}")
