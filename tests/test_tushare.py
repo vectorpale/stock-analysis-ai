@@ -211,24 +211,40 @@ def main():
         print(f"✗ 失败: {e}")
         failed += 1
 
-    test_section("港股: 财报 (hk_income / hk_balancesheet / hk_cashflow)")
-    for api_name, func_name in [("利润表", "hk_income"), ("资产负债表", "hk_balancesheet"), ("现金流", "hk_cashflow")]:
-        try:
-            func = getattr(pro, func_name, None)
-            if func:
-                df = func(ts_code='00700.HK')
-                if df is not None and not df.empty:
-                    print(f"  {api_name}: ✓ ({len(df)} 条, 字段: {list(df.columns[:8])}...)")
-                    passed += 1
-                else:
-                    print(f"  {api_name}: ✗ 返回空数据")
-                    failed += 1
-            else:
-                print(f"  {api_name}: ✗ API {func_name} 不存在")
-                failed += 1
-        except Exception as e:
-            print(f"  {api_name}: ✗ {e}")
+    test_section("港股: 复权行情 (hk_daily_adj 含市值/股本)")
+    try:
+        df = pro.hk_daily_adj(ts_code='00700.HK', start_date='20240101', end_date='20240131')
+        if df is not None and not df.empty:
+            print(df.head())
+            print(f"字段: {list(df.columns)}")
+            print(f"✓ 成功 ({len(df)} 条)")
+            passed += 1
+        else:
+            print("✗ 返回空数据 (可能积分不足)")
             failed += 1
+    except Exception as e:
+        print(f"✗ 失败: {e}")
+        failed += 1
+
+    test_section("港股: 财务指标 (hk_fina_indicator, 需 15000 积分)")
+    try:
+        df = pro.hk_fina_indicator(ts_code='00700.HK')
+        if df is not None and not df.empty:
+            cols = [c for c in ['ts_code','end_date','basic_eps','roe','roa',
+                                'operate_income','operate_income_yoy'] if c in df.columns]
+            print(df[cols].head(3) if cols else df.head(3))
+            print(f"✓ 成功 ({len(df)} 条)")
+            passed += 1
+        else:
+            print("✗ 返回空数据 (可能积分不足，需 15000 积分)")
+            failed += 1
+    except Exception as e:
+        print(f"✗ 失败 (可能积分不足): {e}")
+        failed += 1
+
+    test_section("说明: Tushare 不提供港股原始财报 (无 hk_income/hk_balancesheet/hk_cashflow)")
+    print("  港股财报将自动降级到 AkShare 或 yfinance 获取")
+    print("  这是 Tushare API 的已知限制，非程序错误")
 
     # =====================================================
     # 汇总
