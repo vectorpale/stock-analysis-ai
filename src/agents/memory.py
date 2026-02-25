@@ -116,7 +116,7 @@ class AnalysisMemory:
                 lines.append(f"  实际回报: {ret:+.1f}% ({correct})")
 
         # 反思记忆: 从错误中学习
-        errors = [r for r in records if r.get("outcome", {}).get("was_correct") is False]
+        errors = [r for r in records if (r.get("outcome") or {}).get("was_correct") is False]
         if errors:
             lines.append("\n### 反思: 历史错误判断")
             for r in errors[-3:]:  # 最近3次错误

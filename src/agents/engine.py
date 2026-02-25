@@ -347,6 +347,82 @@ class DebateEngine:
         return result
 
     # ==================================================================
+    # 数据质量评估
+    # ==================================================================
+    @staticmethod
+    def _assess_data_quality(data_pack: dict) -> str:
+        """评估数据完整性，返回提示文本"""
+        missing = []
+        metrics = data_pack.get("key_metrics", {})
+        if not metrics.get("market_cap"):
+            missing.append("市值")
+        if not metrics.get("pe_ratio"):
+            missing.append("PE")
+        if not metrics.get("revenue"):
+            missing.append("营收")
+        if not data_pack.get("technical_indicators", {}).get("current_price"):
+            missing.append("当前价格")
+        if not data_pack.get("financials"):
+            missing.append("财务报表")
+        comp_table = data_pack.get("competitive_comparison", {}).get("comparison_table", [])
+        if len(comp_table) <= 1:
+            missing.append("竞品数据")
+        news = data_pack.get("news_data", {})
+        if not news.get("news") and not news.get("earnings"):
+            missing.append("新闻资讯")
+
+        if not missing:
+            return ""
+
+        note = (
+            "⚠️ **数据质量警告**: 以下数据未能成功获取: "
+            + "、".join(missing) + "。\n"
+            "这可能是因为数据源暂时不可用或网络问题。"
+            "请你务必利用自身对该公司和行业的专业知识进行分析，"
+            "不要因为数据缺失就放弃给出有价值的判断。"
+            "你对这家公司的了解比数据源提供的内容更多——请充分展示。"
+        )
+        return note
+
+    def _get_market_context(self, symbol: str) -> str:
+        """从配置文件中获取与该股票相关的行业热点事件"""
+        market_ctx = self.config.get("market_context", {})
+        if not market_ctx:
+            return "无预设行业事件。请基于你自身的行业知识补充近期重大事件。"
+
+        relevant = []
+
+        # 全局事件
+        for event in market_ctx.get("global", []):
+            relevant.append(f"- [全局] {event}")
+
+        # 查找该股票所属行业
+        industry_mapping = self.config.get("industry_mapping", {})
+        stock_industries = []
+        for industry_key, industry_info in industry_mapping.items():
+            all_symbols = (
+                industry_info.get("symbols", [])
+                + industry_info.get("upstream", [])
+                + industry_info.get("downstream", [])
+            )
+            if symbol in all_symbols:
+                stock_industries.append(industry_key)
+
+        # 行业事件
+        for ind_key in stock_industries:
+            for event in market_ctx.get(ind_key, []):
+                relevant.append(f"- [{industry_mapping.get(ind_key, {}).get('name', ind_key)}] {event}")
+
+        # 个股事件
+        for event in market_ctx.get(symbol, []):
+            relevant.append(f"- [{symbol}] {event}")
+
+        if not relevant:
+            return "无预设行业事件。请基于你自身的行业知识补充近期重大事件。"
+
+        return "\n".join(relevant)
+
+    # ==================================================================
     # Phase 1: 独立分析
     # ==================================================================
     def _run_agent_analysis(self, agent_key: str, data_pack: dict) -> dict:
@@ -361,6 +437,8 @@ class DebateEngine:
             supply_chain_info=data_pack["supply_chain_text"],
             news_data=data_pack["news_text"],
             technical_indicators=format_technical_text(data_pack["technical_indicators"]),
+            market_context=data_pack.get("market_context", ""),
+            data_quality_note=data_pack.get("data_quality_note", ""),
             agent_role=f"{agent['name']} - {agent['title']}",
         )
 
@@ -894,7 +972,7 @@ class DebateEngine:
         )
         news_text = self.news_collector.format_news_text(news_data)
 
-        return {
+        data_pack = {
             "symbol": symbol,
             "key_metrics": key_metrics,
             "price_data": price_data,
@@ -907,6 +985,14 @@ class DebateEngine:
             "news_text": news_text,
         }
 
+        # 数据质量评估
+        data_pack["data_quality_note"] = self._assess_data_quality(data_pack)
+
+        # 行业热点事件
+        data_pack["market_context"] = self._get_market_context(symbol)
+
+        return data_pack
+
     # ==================================================================
     # LLM 调用
     # ==================================================================
@@ -915,7 +1001,7 @@ class DebateEngine:
         try:
             response = self.client.messages.create(
                 model=model,
-                max_tokens=4096,
+                max_tokens=8192,
                 system=system,
                 messages=[{"role": "user", "content": user_message}],
             )
