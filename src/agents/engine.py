@@ -19,8 +19,13 @@ from anthropic import Anthropic
 
 from src.agents.definitions import (
     AGENT_ROLES,
-    CIO_SYSTEM_PROMPT,
+    CHALLENGE_RESPONSE_PROMPT,
+    CIO_CHALLENGE_PROMPT,
+    CIO_CHALLENGE_SYSTEM_PROMPT,
     CIO_DECISION_PROMPT,
+    CIO_SYSTEM_PROMPT,
+    CONTRARIAN_ANALYSIS_PROMPT,
+    CONTRARIAN_SYSTEM_PROMPT,
     DEBATE_ROUND_PROMPT,
     INDEPENDENT_ANALYSIS_PROMPT,
     PAIR_TRADE_PROMPT,
@@ -203,7 +208,77 @@ class DebateEngine:
         msg(f"加权综合得分: {weighted_score:+.1f}, 共识: {consensus}")
 
         # ============================================================
-        # Phase 3: 风控审核
+        # Phase 3: CIO 拷问 (Challenge)
+        # ============================================================
+        notify("CIO 拷问")
+        msg("CIO 正在审视共识并提出拷问...")
+        cio_challenge = self._run_cio_challenge(
+            agent_results=agent_results,
+            weighted_score=weighted_score,
+            consensus=consensus,
+        )
+        result["phases"]["cio_challenge"] = cio_challenge
+        num_q = len(cio_challenge.get("challenges", []))
+        msg(f"CIO 提出 {num_q} 个拷问，核心假设: "
+            f"{cio_challenge.get('core_assumption', 'N/A')[:60]}")
+
+        # ============================================================
+        # Phase 3b: 分析师应答 CIO 拷问
+        # ============================================================
+        notify("分析师应答")
+        msg("分析师正在回应 CIO 拷问...")
+        challenged_results = {}
+        for agent_key in self.debate_agent_keys:
+            agent_info = AGENT_ROLES[agent_key]
+            responded = self._run_challenge_response(
+                agent_key=agent_key,
+                current_analysis=agent_results[agent_key],
+                cio_challenge=cio_challenge,
+            )
+            challenged_results[agent_key] = responded
+            prev_pos = agent_results[agent_key].get("position", 0)
+            new_pos = responded.get("position", 0)
+            delta = new_pos - prev_pos
+            if abs(delta) >= 5:
+                msg(f"  {agent_info['name']}: {prev_pos:+d} → {new_pos:+d} (变化 {delta:+d})")
+            else:
+                msg(f"  {agent_info['name']}: {new_pos:+d} (立场未变)")
+
+        agent_results = challenged_results
+        result["phases"]["post_challenge_positions"] = agent_results
+
+        # 重算加权得分
+        weighted_score = weighted_score_aggregation(
+            [agent_results[k] for k in self.debate_agent_keys],
+            self.agent_weights,
+            self.debate_agent_keys,
+        )
+        consensus = compute_consensus_label(
+            [agent_results[k] for k in self.debate_agent_keys]
+        )
+        result["weighted_score"] = weighted_score
+        result["consensus"] = consensus
+        msg(f"拷问后加权得分: {weighted_score:+.1f}, 共识: {consensus}")
+
+        # ============================================================
+        # Phase 3c: 反共识分析 (Devil's Advocate)
+        # ============================================================
+        notify("反共识分析")
+        msg("Devil's Advocate 正在构建反共识论证...")
+        contrarian = self._run_contrarian_analysis(
+            agent_results=agent_results,
+            weighted_score=weighted_score,
+            consensus=consensus,
+            cio_challenge=cio_challenge,
+            data_pack=data_pack,
+        )
+        result["phases"]["contrarian_analysis"] = contrarian
+        msg(f"反共识立场: {contrarian.get('contrarian_position', 'N/A')}")
+        msg(f"  概率评估: {contrarian.get('probability_estimate', '?')}%")
+        msg(f"  核心价格驱动: {contrarian.get('key_price_driver', 'N/A')[:60]}")
+
+        # ============================================================
+        # Phase 4: 风控审核
         # ============================================================
         notify("风控审核")
         msg("风控官正在审核...")
@@ -218,7 +293,7 @@ class DebateEngine:
             f"风险等级: {risk_verdict.get('risk_level', 'N/A')}")
 
         # ============================================================
-        # Phase 4: CIO 最终决策
+        # Phase 5: CIO 最终决策 (增强版)
         # ============================================================
         notify("CIO 决策")
         msg("CIO 正在做最终决策...")
@@ -229,6 +304,8 @@ class DebateEngine:
             weighted_score=weighted_score,
             risk_verdict=risk_verdict,
             data_pack=data_pack,
+            cio_challenge=cio_challenge,
+            contrarian=contrarian,
         )
         cio_decision["price_at_analysis"] = data_pack["technical_indicators"].get("current_price")
         result["phases"]["cio_decision"] = cio_decision
@@ -360,7 +437,153 @@ class DebateEngine:
         return result
 
     # ==================================================================
-    # Phase 3: 风控审核
+    # Phase 3: CIO 拷问
+    # ==================================================================
+    def _run_cio_challenge(
+        self,
+        agent_results: dict,
+        weighted_score: float,
+        consensus: str,
+    ) -> dict:
+        """CIO 对分析师共识提出尖锐质疑"""
+        positions_text = []
+        for agent_key in self.debate_agent_keys:
+            r = agent_results[agent_key]
+            agent_info = AGENT_ROLES[agent_key]
+            positions_text.append(
+                f"### {agent_info['name']} ({agent_info['title']})\n"
+                f"- 立场: {r.get('position', 0):+d}, 信心: {r.get('confidence', 0)}%\n"
+                f"- 核心论点: {', '.join(r.get('key_points', []))}\n"
+                f"- 风险: {', '.join(r.get('risks', []))}"
+            )
+
+        prompt = CIO_CHALLENGE_PROMPT.format(
+            final_positions="\n".join(positions_text),
+            weighted_score=f"{weighted_score:+.1f}",
+            consensus_direction=consensus,
+        )
+
+        response = self._call_llm(
+            model=self.cio_model,
+            system=CIO_CHALLENGE_SYSTEM_PROMPT,
+            user_message=prompt,
+        )
+
+        result = parse_json_response(response)
+        if result is None:
+            result = {
+                "consensus_summary": "解析失败",
+                "consensus_direction": consensus,
+                "core_assumption": "未知",
+                "challenges": [],
+            }
+        return result
+
+    # ==================================================================
+    # Phase 3b: 分析师应答拷问
+    # ==================================================================
+    def _run_challenge_response(
+        self,
+        agent_key: str,
+        current_analysis: dict,
+        cio_challenge: dict,
+    ) -> dict:
+        """分析师回应 CIO 拷问"""
+        agent = AGENT_ROLES[agent_key]
+
+        # 格式化拷问
+        challenges_text = []
+        for i, ch in enumerate(cio_challenge.get("challenges", []), 1):
+            challenges_text.append(
+                f"{i}. **{ch.get('question', '')}**\n"
+                f"   针对: {ch.get('target', '全体')}\n"
+                f"   关键性: {ch.get('why_critical', '')}"
+            )
+
+        prompt = CHALLENGE_RESPONSE_PROMPT.format(
+            my_current_analysis=json.dumps(
+                {k: v for k, v in current_analysis.items()
+                 if k not in ("agent_key", "agent_name", "agent_title")},
+                ensure_ascii=False, indent=2,
+            ),
+            challenges="\n\n".join(challenges_text) if challenges_text else "无拷问",
+        )
+
+        response = self._call_llm(
+            model=self.analyst_model,
+            system=agent["system_prompt"],
+            user_message=prompt,
+        )
+
+        result = parse_json_response(response)
+        if result is None:
+            result = current_analysis.copy()
+        result["agent_key"] = agent_key
+        result["agent_name"] = agent["name"]
+        result["agent_title"] = agent["title"]
+        return result
+
+    # ==================================================================
+    # Phase 3c: 反共识分析
+    # ==================================================================
+    def _run_contrarian_analysis(
+        self,
+        agent_results: dict,
+        weighted_score: float,
+        consensus: str,
+        cio_challenge: dict,
+        data_pack: dict,
+    ) -> dict:
+        """Devil's Advocate 反共识分析"""
+        positions_text = []
+        for agent_key in self.debate_agent_keys:
+            r = agent_results[agent_key]
+            agent_info = AGENT_ROLES[agent_key]
+            positions_text.append(
+                f"- {agent_info['name']}({agent_info['title']}): "
+                f"立场 {r.get('position', 0):+d}, "
+                f"论点: {', '.join(r.get('key_points', [])[:2])}"
+            )
+
+        # 找出被拷问后暴露的弱点
+        weak_points = []
+        for agent_key in self.debate_agent_keys:
+            r = agent_results[agent_key]
+            responses = r.get("responses", [])
+            for resp in responses:
+                if resp.get("conceded"):
+                    weak_points.append(
+                        f"- {r.get('agent_name', '')}: "
+                        f"承认了「{resp.get('question', '')[:40]}」"
+                    )
+
+        prompt = CONTRARIAN_ANALYSIS_PROMPT.format(
+            consensus_summary=cio_challenge.get("consensus_summary", consensus),
+            consensus_direction=cio_challenge.get("consensus_direction", consensus),
+            weighted_score=f"{weighted_score:+.1f}",
+            core_assumption=cio_challenge.get("core_assumption", "未知"),
+            final_positions="\n".join(positions_text),
+            weak_points="\n".join(weak_points) if weak_points else "未发现明显弱点",
+            key_data=format_metrics_text(data_pack["key_metrics"]),
+        )
+
+        response = self._call_llm(
+            model=self.analyst_model,
+            system=CONTRARIAN_SYSTEM_PROMPT,
+            user_message=prompt,
+        )
+
+        result = parse_json_response(response)
+        if result is None:
+            result = {
+                "contrarian_position": "无法生成反共识观点",
+                "contrarian_thesis": response[:300] if response else "",
+                "probability_estimate": 0,
+            }
+        return result
+
+    # ==================================================================
+    # Phase 4: 风控审核
     # ==================================================================
     def _run_risk_committee(
         self,
@@ -429,8 +652,10 @@ class DebateEngine:
         weighted_score: float,
         risk_verdict: dict,
         data_pack: dict,
+        cio_challenge: Optional[dict] = None,
+        contrarian: Optional[dict] = None,
     ) -> dict:
-        """CIO 最终投资决策"""
+        """CIO 最终投资决策 (增强版: 含拷问结果和反共识)"""
 
         # 格式化各分析师最终立场
         positions_text = []
@@ -461,6 +686,39 @@ class DebateEngine:
             for r in bear_positions:
                 disagreements += f"- {r.get('agent_name', '')}: {', '.join(r.get('key_points', [])[:2])}\n"
 
+        # CIO 拷问摘要
+        challenge_summary = "无拷问记录"
+        if cio_challenge and cio_challenge.get("challenges"):
+            lines = [f"核心假设: {cio_challenge.get('core_assumption', 'N/A')}"]
+            for ch in cio_challenge["challenges"]:
+                lines.append(f"- 拷问: {ch.get('question', '')}")
+            # 分析师回应中的让步
+            for agent_key in self.debate_agent_keys:
+                r = agent_results[agent_key]
+                for resp in r.get("responses", []):
+                    if resp.get("conceded"):
+                        lines.append(
+                            f"- {r.get('agent_name', '')} 承认: {resp.get('answer', '')[:60]}..."
+                        )
+            challenge_summary = "\n".join(lines)
+
+        # 反共识分析摘要
+        contrarian_text = "无反共识分析"
+        if contrarian:
+            contrarian_text = (
+                f"反共识立场: {contrarian.get('contrarian_position', 'N/A')}\n"
+                f"反共识论点: {contrarian.get('contrarian_thesis', 'N/A')}\n"
+                f"概率评估: {contrarian.get('probability_estimate', '?')}%\n"
+                f"核心价格驱动: {contrarian.get('key_price_driver', 'N/A')}\n"
+            )
+            evidence = contrarian.get("contrarian_evidence", [])
+            if evidence:
+                contrarian_text += "证据:\n"
+                for e in evidence[:3]:
+                    contrarian_text += f"  - {e.get('point', '')}: {e.get('data_support', '')}\n"
+            if contrarian.get("historical_parallel"):
+                contrarian_text += f"历史类比: {contrarian['historical_parallel']}\n"
+
         # 风控意见
         risk_text = (
             f"- 审核结论: {risk_verdict.get('verdict', 'N/A')}\n"
@@ -480,6 +738,8 @@ class DebateEngine:
             final_positions="\n".join(positions_text),
             key_disagreements=disagreements,
             weighted_score=f"{weighted_score:+.1f}",
+            challenge_summary=challenge_summary,
+            contrarian_analysis=contrarian_text,
             risk_committee_verdict=risk_text,
             memory_context=memory_context,
         )
@@ -719,6 +979,61 @@ class DebateEngine:
 
         lines.append("")
 
+        # 共识 vs 反共识
+        cvc = cio.get("consensus_vs_contrarian", {})
+        contrarian = result.get("phases", {}).get("contrarian_analysis", {})
+        challenge = result.get("phases", {}).get("cio_challenge", {})
+        if cvc or contrarian:
+            lines.append("=" * 60)
+            lines.append("共识观点 vs 反共识观点")
+            lines.append("=" * 60)
+            if cvc:
+                lines.append(f"共识观点 (概率 {cvc.get('consensus_probability', '?')}%):")
+                lines.append(f"  {cvc.get('consensus_view', 'N/A')}")
+                lines.append(f"反共识观点 (概率 {cvc.get('contrarian_probability', '?')}%):")
+                lines.append(f"  {cvc.get('contrarian_view', 'N/A')}")
+                lines.append("")
+                drivers = cvc.get("key_price_drivers", [])
+                if drivers:
+                    lines.append("核心股价驱动变量:")
+                    for d in drivers:
+                        lines.append(f"  >> {d}")
+                if cvc.get("what_consensus_is_missing"):
+                    lines.append(f"共识盲点: {cvc['what_consensus_is_missing']}")
+                if cvc.get("cio_independent_judgment"):
+                    lines.append(f"CIO独立判断: {cvc['cio_independent_judgment']}")
+            lines.append("")
+
+            if contrarian.get("contrarian_thesis"):
+                lines.append("-" * 40)
+                lines.append("Devil's Advocate 反共识详细论证")
+                lines.append("-" * 40)
+                lines.append(f"反共识立场: {contrarian.get('contrarian_position', 'N/A')}")
+                lines.append(f"核心论点: {contrarian.get('contrarian_thesis', 'N/A')}")
+                lines.append(f"概率评估: {contrarian.get('probability_estimate', '?')}%")
+                lines.append(f"核心价格驱动: {contrarian.get('key_price_driver', 'N/A')}")
+                evidence = contrarian.get("contrarian_evidence", [])
+                if evidence:
+                    lines.append("证据:")
+                    for e in evidence[:3]:
+                        lines.append(f"  - {e.get('point', '')}")
+                        lines.append(f"    数据: {e.get('data_support', '')}")
+                        lines.append(f"    共识盲点: {e.get('consensus_blind_spot', '')}")
+                if contrarian.get("historical_parallel"):
+                    lines.append(f"历史类比: {contrarian['historical_parallel']}")
+                if contrarian.get("trigger_scenario"):
+                    lines.append(f"验证场景: {contrarian['trigger_scenario']}")
+
+            if challenge.get("challenges"):
+                lines.append("")
+                lines.append("-" * 40)
+                lines.append("CIO 拷问记录")
+                lines.append("-" * 40)
+                lines.append(f"共识核心假设: {challenge.get('core_assumption', 'N/A')}")
+                for i, ch in enumerate(challenge["challenges"], 1):
+                    lines.append(f"  Q{i}: {ch.get('question', '')}")
+            lines.append("")
+
         # 风控意见
         lines.append("-" * 40)
         lines.append("风控委员会意见")
@@ -733,11 +1048,12 @@ class DebateEngine:
                 lines.append(f"  - {c}")
         lines.append("")
 
-        # 各分析师最终立场
+        # 各分析师最终立场 (经CIO拷问后)
         lines.append("-" * 40)
-        lines.append("各分析师最终立场")
+        lines.append("各分析师最终立场 (经CIO拷问后)")
         lines.append("-" * 40)
-        final_positions = result.get("phases", {}).get("final_positions", {})
+        final_positions = result.get("phases", {}).get("post_challenge_positions",
+                          result.get("phases", {}).get("final_positions", {}))
         for agent_key, pos in final_positions.items():
             lines.append(
                 f"{pos.get('agent_name', '')} ({pos.get('agent_title', '')}): "

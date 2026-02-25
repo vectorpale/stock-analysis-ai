@@ -278,6 +278,67 @@ if analyze_btn and api_key:
             for m in monitoring:
                 st.info(m)
 
+        # ---- 共识 vs 反共识 ----
+        cvc = cio.get("consensus_vs_contrarian", {})
+        contrarian = result.get("phases", {}).get("contrarian_analysis", {})
+        challenge = result.get("phases", {}).get("cio_challenge", {})
+
+        if cvc or contrarian:
+            st.divider()
+            st.header("共识观点 vs 反共识观点")
+
+            if cvc:
+                col_cons, col_contra = st.columns(2)
+                with col_cons:
+                    cons_prob = cvc.get("consensus_probability", "?")
+                    st.metric("共识观点", f"概率 {cons_prob}%")
+                    st.info(cvc.get("consensus_view", "N/A"))
+                with col_contra:
+                    contra_prob = cvc.get("contrarian_probability", "?")
+                    st.metric("反共识观点", f"概率 {contra_prob}%")
+                    st.warning(cvc.get("contrarian_view", "N/A"))
+
+                drivers = cvc.get("key_price_drivers", [])
+                if drivers:
+                    st.subheader("核心股价驱动变量")
+                    for d in drivers:
+                        st.markdown(f"- **{d}**")
+
+                if cvc.get("what_consensus_is_missing"):
+                    st.subheader("共识盲点")
+                    st.warning(cvc["what_consensus_is_missing"])
+
+                if cvc.get("cio_independent_judgment"):
+                    st.subheader("CIO 独立判断")
+                    st.info(cvc["cio_independent_judgment"])
+
+            if contrarian.get("contrarian_thesis"):
+                with st.expander("Devil's Advocate 反共识详细论证"):
+                    st.markdown(f"**反共识立场:** {contrarian.get('contrarian_position', 'N/A')}")
+                    st.markdown(f"**核心论点:** {contrarian.get('contrarian_thesis', 'N/A')}")
+                    st.markdown(f"**概率评估:** {contrarian.get('probability_estimate', '?')}%")
+                    st.markdown(f"**核心价格驱动:** {contrarian.get('key_price_driver', 'N/A')}")
+
+                    evidence = contrarian.get("contrarian_evidence", [])
+                    if evidence:
+                        st.markdown("**证据:**")
+                        for e in evidence[:3]:
+                            st.markdown(f"- {e.get('point', '')}: {e.get('data_support', '')}")
+                            st.caption(f"共识盲点: {e.get('consensus_blind_spot', '')}")
+
+                    if contrarian.get("historical_parallel"):
+                        st.markdown(f"**历史类比:** {contrarian['historical_parallel']}")
+                    if contrarian.get("trigger_scenario"):
+                        st.markdown(f"**验证场景:** {contrarian['trigger_scenario']}")
+
+            if challenge.get("challenges"):
+                with st.expander("CIO 拷问记录"):
+                    st.markdown(f"**共识核心假设:** {challenge.get('core_assumption', 'N/A')}")
+                    for i, ch in enumerate(challenge["challenges"], 1):
+                        st.markdown(f"**Q{i}: {ch.get('question', '')}**")
+                        st.caption(f"针对: {ch.get('target', '全体')} | "
+                                   f"关键性: {ch.get('why_critical', '')}")
+
         # ---- 催化剂与风险 ----
         st.divider()
         col_cat, col_risk = st.columns(2)
@@ -368,10 +429,13 @@ else:
     本系统采用**多Agent辩论模型**进行个股深度分析，核心流程:
 
     1. **数据收集** — 获取个股财务数据、竞品对比、产业链信息、新闻资讯
-    2. **独立分析** — 6位AI分析师从不同角度独立分析（防止锚定偏差）
+    2. **独立分析** — 5位AI分析师从不同角度独立分析（防止锚定偏差）
     3. **多轮辩论** — 分析师相互质疑、回应、修正观点（收敛检测自动终止）
-    4. **风控审核** — 风控官审核并可行使一票否决权
-    5. **CIO决策** — 首席投资官综合各方观点做出最终判断
+    4. **CIO拷问** — CIO挑战共识观点，分析师逐一回应（打破群体思维）
+    5. **反共识分析** — Devil's Advocate构建最有力的反共识论证
+    6. **风控审核** — 风控官审核并可行使一票否决权
+    7. **CIO决策** — 综合共识与反共识观点，输出独立投资判断
+    8. **配对交易** — 基于分析结论设计Long/Short配对策略
 
     ### 分析师团队
 
