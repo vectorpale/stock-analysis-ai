@@ -202,41 +202,64 @@ class DataFetcher:
             return {}
 
         try:
-            import pandas_ta as ta
-
             indicators = {}
 
+            close = df["Close"]
+            high = df["High"]
+            low = df["Low"]
+
             # 移动均线
-            indicators["sma_20"] = round(df["Close"].rolling(20).mean().iloc[-1], 2)
-            indicators["sma_50"] = round(df["Close"].rolling(50).mean().iloc[-1], 2)
-            indicators["sma_200"] = round(df["Close"].rolling(200).mean().iloc[-1], 2) if len(df) >= 200 else None
+            indicators["sma_20"] = round(close.rolling(20).mean().iloc[-1], 2)
+            indicators["sma_50"] = round(close.rolling(50).mean().iloc[-1], 2)
+            indicators["sma_200"] = round(close.rolling(200).mean().iloc[-1], 2) if len(df) >= 200 else None
 
-            # RSI
-            rsi = ta.rsi(df["Close"], length=14)
-            indicators["rsi_14"] = round(rsi.iloc[-1], 2) if rsi is not None else None
+            # RSI (Wilder smoothing)
+            delta = close.diff()
+            gain = delta.clip(lower=0)
+            loss = (-delta.clip(upper=0))
+            avg_gain = gain.ewm(alpha=1/14, min_periods=14).mean()
+            avg_loss = loss.ewm(alpha=1/14, min_periods=14).mean()
+            rs = avg_gain / avg_loss.replace(0, float('nan'))
+            rsi = 100 - (100 / (1 + rs))
+            indicators["rsi_14"] = round(rsi.iloc[-1], 2) if not pd.isna(rsi.iloc[-1]) else None
 
-            # MACD
-            macd = ta.macd(df["Close"])
-            if macd is not None:
-                indicators["macd"] = round(macd.iloc[-1, 0], 4)
-                indicators["macd_signal"] = round(macd.iloc[-1, 1], 4)
-                indicators["macd_histogram"] = round(macd.iloc[-1, 2], 4)
+            # MACD (12, 26, 9)
+            ema12 = close.ewm(span=12, adjust=False).mean()
+            ema26 = close.ewm(span=26, adjust=False).mean()
+            macd_line = ema12 - ema26
+            signal_line = macd_line.ewm(span=9, adjust=False).mean()
+            macd_hist = macd_line - signal_line
+            indicators["macd"] = round(macd_line.iloc[-1], 4)
+            indicators["macd_signal"] = round(signal_line.iloc[-1], 4)
+            indicators["macd_histogram"] = round(macd_hist.iloc[-1], 4)
 
-            # Bollinger Bands
-            bbands = ta.bbands(df["Close"], length=20)
-            if bbands is not None:
-                indicators["bb_upper"] = round(bbands.iloc[-1, 0], 2)
-                indicators["bb_middle"] = round(bbands.iloc[-1, 1], 2)
-                indicators["bb_lower"] = round(bbands.iloc[-1, 2], 2)
+            # Bollinger Bands (20, 2)
+            sma20 = close.rolling(20).mean()
+            std20 = close.rolling(20).std()
+            indicators["bb_upper"] = round((sma20 + 2 * std20).iloc[-1], 2)
+            indicators["bb_middle"] = round(sma20.iloc[-1], 2)
+            indicators["bb_lower"] = round((sma20 - 2 * std20).iloc[-1], 2)
 
-            # ATR
-            atr = ta.atr(df["High"], df["Low"], df["Close"], length=14)
-            indicators["atr_14"] = round(atr.iloc[-1], 4) if atr is not None else None
+            # ATR (14)
+            tr = pd.concat([
+                high - low,
+                (high - close.shift(1)).abs(),
+                (low - close.shift(1)).abs(),
+            ], axis=1).max(axis=1)
+            atr = tr.rolling(14).mean()
+            indicators["atr_14"] = round(atr.iloc[-1], 4) if not pd.isna(atr.iloc[-1]) else None
 
-            # ADX
-            adx = ta.adx(df["High"], df["Low"], df["Close"], length=14)
-            if adx is not None:
-                indicators["adx"] = round(adx.iloc[-1, 0], 2)
+            # ADX (14)
+            plus_dm = high.diff().clip(lower=0)
+            minus_dm = (-low.diff()).clip(lower=0)
+            plus_dm[plus_dm < minus_dm] = 0
+            minus_dm[minus_dm < plus_dm] = 0
+            atr14 = tr.ewm(alpha=1/14, min_periods=14).mean()
+            plus_di = 100 * (plus_dm.ewm(alpha=1/14, min_periods=14).mean() / atr14)
+            minus_di = 100 * (minus_dm.ewm(alpha=1/14, min_periods=14).mean() / atr14)
+            dx = 100 * ((plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, float('nan')))
+            adx = dx.ewm(alpha=1/14, min_periods=14).mean()
+            indicators["adx"] = round(adx.iloc[-1], 2) if not pd.isna(adx.iloc[-1]) else None
 
             # 价格位置
             current = df["Close"].iloc[-1]

@@ -875,10 +875,13 @@ class DebateEngine:
             if companies:
                 supply_chain_lines.append(f"\n### 产业链{label}")
                 for c in companies:
+                    rg = c.get('revenue_growth')
+                    pm = c.get('profit_margin')
+                    rg_str = f"{rg*100:.1f}%" if rg else "N/A"
+                    pm_str = f"{pm*100:.1f}%" if pm else "N/A"
                     supply_chain_lines.append(
                         f"- {c.get('company_name', c.get('symbol', ''))}: "
-                        f"营收增速 {f'{c.get(\"revenue_growth\", 0)*100:.1f}%' if c.get('revenue_growth') else 'N/A'}, "
-                        f"利润率 {f'{c.get(\"profit_margin\", 0)*100:.1f}%' if c.get('profit_margin') else 'N/A'}"
+                        f"营收增速 {rg_str}, 利润率 {pm_str}"
                     )
         supply_chain_text = "\n".join(supply_chain_lines) if supply_chain_lines else "无产业链数据"
 

@@ -12,9 +12,6 @@ requests>=2.31.0
 pandas>=2.1.0
 numpy>=1.26.0
 
-# Technical Analysis
-pandas-ta>=0.3.14b
-
 # Visualization
 plotly>=5.18.0
 
