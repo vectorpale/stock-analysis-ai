@@ -14,7 +14,7 @@ import sys
 
 logger = logging.getLogger(__name__)
 
-_SENSITIVE_KEYS = ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"]
+_SENSITIVE_KEYS = ["DASHSCOPE_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "FMP_API_KEY"]
 
 
 def _mask(key: str) -> str:
@@ -39,20 +39,21 @@ def _secure_zero(s: str):
         pass  # 非 CPython 或权限不足，静默跳过
 
 
-def ensure_api_key(env_var: str = "ANTHROPIC_API_KEY", prompt_if_missing: bool = True) -> bool:
+def ensure_api_key(env_var: str = "DASHSCOPE_API_KEY", prompt_if_missing: bool = True) -> bool:
     """
-    确保 API Key 已设置。
+    确保 LLM API Key 已设置。
 
-    查找顺序:
-    1. 环境变量已有值 (ANTHROPIC_API_KEY 或 OPENAI_API_KEY) → 直接使用
-    2. .env 文件 (通过 dotenv 已加载)
-    3. 交互式提示用户输入 (不回显)
+    检查顺序:
+    1. DASHSCOPE_API_KEY (通义千问，默认推荐)
+    2. ANTHROPIC_API_KEY (Claude)
+    3. OPENAI_API_KEY (通用 OpenAI 兼容)
+    4. 交互式提示输入
 
     Returns:
         True if key is available, False if user skipped
     """
-    # 检查是否已有任意一个 Key
-    for key_name in _SENSITIVE_KEYS:
+    # 检查是否已有任意一个 LLM Key
+    for key_name in ("DASHSCOPE_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"):
         existing = os.environ.get(key_name, "").strip()
         if existing:
             logger.debug(f"{key_name} 已设置 ({_mask(existing)})")
@@ -61,23 +62,48 @@ def ensure_api_key(env_var: str = "ANTHROPIC_API_KEY", prompt_if_missing: bool =
     if not prompt_if_missing:
         return False
 
-    # 交互式输入 — 让用户选择 provider
+    # 交互式输入 — 默认通义千问，只需输入 API Key
     print(f"\n{'='*56}")
     print(f"  未检测到 API Key，请选择 LLM 服务商:")
-    print(f"  [1] Anthropic (Claude)")
-    print(f"  [2] OpenAI 兼容 (GPT/DeepSeek/Qwen/Ollama 等)")
+    print(f"  [1] 通义千问 Qwen (推荐，注册即送免费额度)")
+    print(f"  [2] 其他 OpenAI 兼容 (DeepSeek/GPT/Ollama)")
+    print(f"  [3] Anthropic Claude")
     print(f"{'='*56}")
 
     try:
-        choice = input("请选择 [1/2] (默认1): ").strip() or "1"
+        choice = input("请选择 [1/2/3] (默认1): ").strip() or "1"
     except (EOFError, KeyboardInterrupt):
         print("\n已取消")
         return False
 
-    if choice == "2":
+    if choice == "3":
+        return _prompt_anthropic()
+    elif choice == "2":
         return _prompt_openai_compatible()
     else:
-        return _prompt_anthropic()
+        return _prompt_qwen()
+
+
+def _prompt_qwen() -> bool:
+    """交互式输入通义千问 API Key"""
+    print()
+    print("  通义千问 API Key 获取: https://dashscope.console.aliyun.com/apiKey")
+    print("  输入不会显示在屏幕上，也不会保存到文件")
+    try:
+        key = getpass.getpass(prompt="通义千问 API Key: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print("\n已取消")
+        return False
+
+    if not key:
+        print("未输入 Key")
+        return False
+
+    os.environ["DASHSCOPE_API_KEY"] = key
+    print(f"  已设置 通义千问 ({_mask(key)})")
+    print(f"  此 Key 仅在本次运行期间有效，进程结束后自动清除\n")
+    _register_cleanup("DASHSCOPE_API_KEY", key)
+    return True
 
 
 def _prompt_anthropic() -> bool:
@@ -108,7 +134,6 @@ def _prompt_openai_compatible() -> bool:
     # Base URL
     print("  常见 Base URL:")
     print("    DeepSeek:  https://api.deepseek.com")
-    print("    阿里通义:   https://dashscope.aliyuncs.com/compatible-mode/v1")
     print("    Ollama:    http://localhost:11434/v1")
     print("    OpenAI:    (留空即可)")
     print()
@@ -130,7 +155,7 @@ def _prompt_openai_compatible() -> bool:
 
     # 让用户指定模型
     print()
-    model = input("模型名称 (如 deepseek-chat, gpt-4o, qwen-plus, 留空=gpt-4o): ").strip()
+    model = input("模型名称 (如 deepseek-chat, gpt-4o, 留空=自动): ").strip()
     if model:
         os.environ["LLM_MODEL_OVERRIDE"] = model
 

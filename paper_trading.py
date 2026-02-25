@@ -71,29 +71,35 @@ with st.sidebar:
     st.caption("多Agent辩论 · 自动交易验证")
     st.divider()
 
-    # LLM 服务商选择 (Key 仅存于内存，不落盘)
+    # LLM 服务商 (Key 仅存于内存，不落盘)
+    has_qwen = bool(os.environ.get("DASHSCOPE_API_KEY", "").strip())
     has_anthropic = bool(os.environ.get("ANTHROPIC_API_KEY", "").strip())
     has_openai = bool(os.environ.get("OPENAI_API_KEY", "").strip())
 
-    if has_anthropic or has_openai:
-        provider_name = "Anthropic" if has_anthropic else "OpenAI Compatible"
+    if has_qwen or has_anthropic or has_openai:
+        if has_qwen:
+            provider_name = "通义千问"
+        elif has_anthropic:
+            provider_name = "Anthropic Claude"
+        else:
+            provider_name = "OpenAI Compatible"
         st.success(f"API Key 已加载 ({provider_name})")
-        api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("OPENAI_API_KEY")
+        api_key = (os.environ.get("DASHSCOPE_API_KEY")
+                   or os.environ.get("ANTHROPIC_API_KEY")
+                   or os.environ.get("OPENAI_API_KEY"))
     else:
         provider_choice = st.selectbox(
             "LLM 服务商",
-            ["Anthropic (Claude)", "OpenAI 兼容 (GPT/DeepSeek/Qwen/Ollama)"],
+            ["通义千问 Qwen (推荐)", "其他 OpenAI 兼容", "Anthropic Claude"],
         )
-        if "OpenAI" in provider_choice:
-            base_url = st.text_input(
-                "Base URL",
-                placeholder="https://api.deepseek.com",
-                help="留空=OpenAI官方, DeepSeek: https://api.deepseek.com",
-            )
-            api_key = st.text_input("API Key", type="password",
-                                    help="Key 仅在本次会话中使用")
-            model_name = st.text_input("模型名称", value="gpt-4o",
-                                       help="如 gpt-4o, deepseek-chat, qwen-plus")
+        if "Anthropic" in provider_choice:
+            api_key = st.text_input("Anthropic API Key", type="password")
+            if api_key:
+                os.environ["ANTHROPIC_API_KEY"] = api_key
+        elif "其他" in provider_choice:
+            base_url = st.text_input("Base URL", placeholder="https://api.deepseek.com")
+            api_key = st.text_input("API Key", type="password")
+            model_name = st.text_input("模型名称", value="")
             if api_key:
                 os.environ["OPENAI_API_KEY"] = api_key
                 if base_url:
@@ -101,10 +107,10 @@ with st.sidebar:
                 if model_name:
                     os.environ["LLM_MODEL_OVERRIDE"] = model_name
         else:
-            api_key = st.text_input("Anthropic API Key", type="password",
-                                    help="Key 仅在本次会话中使用")
+            api_key = st.text_input("通义千问 API Key", type="password",
+                                    help="[获取Key](https://dashscope.console.aliyun.com/apiKey)")
             if api_key:
-                os.environ["ANTHROPIC_API_KEY"] = api_key
+                os.environ["DASHSCOPE_API_KEY"] = api_key
 
     st.divider()
 

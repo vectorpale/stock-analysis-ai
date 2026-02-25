@@ -46,29 +46,41 @@ with st.sidebar:
     st.caption("多Agent辩论模型 · 基本面深度分析")
     st.divider()
 
-    # LLM 服务商选择 (Key 仅存于内存，不落盘)
+    # LLM 服务商 (Key 仅存于内存，不落盘)
+    has_qwen = bool(os.environ.get("DASHSCOPE_API_KEY", "").strip())
     has_anthropic = bool(os.environ.get("ANTHROPIC_API_KEY", "").strip())
     has_openai = bool(os.environ.get("OPENAI_API_KEY", "").strip())
 
-    if has_anthropic or has_openai:
-        provider_name = "Anthropic" if has_anthropic else "OpenAI Compatible"
-        st.success(f"API Key 已从环境变量加载 ({provider_name})")
-        api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    if has_qwen or has_anthropic or has_openai:
+        if has_qwen:
+            provider_name = "通义千问"
+        elif has_anthropic:
+            provider_name = "Anthropic Claude"
+        else:
+            provider_name = "OpenAI Compatible"
+        st.success(f"API Key 已加载 ({provider_name})")
+        api_key = (os.environ.get("DASHSCOPE_API_KEY")
+                   or os.environ.get("ANTHROPIC_API_KEY")
+                   or os.environ.get("OPENAI_API_KEY"))
     else:
         provider_choice = st.selectbox(
             "LLM 服务商",
-            ["Anthropic (Claude)", "OpenAI 兼容 (GPT/DeepSeek/Qwen/Ollama)"],
+            ["通义千问 Qwen (推荐)", "其他 OpenAI 兼容", "Anthropic Claude"],
         )
-        if "OpenAI" in provider_choice:
+        if "Anthropic" in provider_choice:
+            api_key = st.text_input("Anthropic API Key", type="password",
+                                    help="Key 仅在本次会话中使用")
+            if api_key:
+                os.environ["ANTHROPIC_API_KEY"] = api_key
+        elif "其他" in provider_choice:
             base_url = st.text_input(
                 "Base URL",
                 placeholder="https://api.deepseek.com",
-                help="留空=OpenAI官方, DeepSeek: https://api.deepseek.com",
+                help="DeepSeek: https://api.deepseek.com, Ollama: http://localhost:11434/v1",
             )
-            api_key = st.text_input("API Key", type="password",
-                                    help="Key 仅在本次会话中使用，不会保存到文件")
-            model_name = st.text_input("模型名称", value="gpt-4o",
-                                       help="如 gpt-4o, deepseek-chat, qwen-plus")
+            api_key = st.text_input("API Key", type="password")
+            model_name = st.text_input("模型名称", value="",
+                                       help="如 deepseek-chat, gpt-4o (留空=自动)")
             if api_key:
                 os.environ["OPENAI_API_KEY"] = api_key
                 if base_url:
@@ -76,10 +88,13 @@ with st.sidebar:
                 if model_name:
                     os.environ["LLM_MODEL_OVERRIDE"] = model_name
         else:
-            api_key = st.text_input("Anthropic API Key", type="password",
-                                    help="Key 仅在本次会话中使用，不会保存到文件")
+            # 通义千问 — 只需 API Key
+            api_key = st.text_input(
+                "通义千问 API Key", type="password",
+                help="[获取Key](https://dashscope.console.aliyun.com/apiKey) · 注册即送免费额度",
+            )
             if api_key:
-                os.environ["ANTHROPIC_API_KEY"] = api_key
+                os.environ["DASHSCOPE_API_KEY"] = api_key
 
     st.divider()
 
@@ -112,7 +127,7 @@ with st.sidebar:
     )
 
     if not api_key:
-        st.warning("请先输入 Anthropic API Key")
+        st.warning("请先输入 API Key")
 
     st.divider()
     st.caption("免责声明: AI分析仅供参考，不构成投资建议。")

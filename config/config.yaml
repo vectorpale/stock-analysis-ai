@@ -3,26 +3,27 @@
 # ============================================================
 
 # LLM 服务商配置
-# 支持 "anthropic" (默认) 或 "openai_compatible" (GPT/DeepSeek/Qwen/Ollama等)
-# 也可通过环境变量覆盖: ANTHROPIC_API_KEY 或 OPENAI_API_KEY + OPENAI_BASE_URL
+# 默认使用通义千问 (Qwen)，只需设置 DASHSCOPE_API_KEY 即可
+# 也支持: Anthropic Claude, DeepSeek, GPT, Ollama 等
 llm_provider:
-  provider: "anthropic"       # "anthropic" | "openai_compatible"
-  # api_key: ""               # 留空则从环境变量读取 (推荐)
-  # base_url: ""              # OpenAI 兼容接口 URL, 示例:
-                               #   DeepSeek:  https://api.deepseek.com
-                               #   阿里通义:   https://dashscope.aliyuncs.com/compatible-mode/v1
-                               #   Ollama:    http://localhost:11434/v1
-                               #   OpenAI:    留空即可
+  provider: "openai_compatible"   # "openai_compatible" (默认) | "anthropic"
+  # api_key: ""                   # 留空则从环境变量读取 (推荐)
+  base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"  # 通义千问
+  # 其他 Base URL 示例:
+  #   DeepSeek:  https://api.deepseek.com
+  #   Ollama:    http://localhost:11434/v1
+  #   OpenAI:    留空或删除 base_url 行
 
-# AI 模型配置 (Anthropic 默认值，切换 provider 时会自动使用对应默认模型)
+# AI 模型配置 (通义千问默认值)
+# 留空或注释掉则使用内置默认: qwen-max / qwen-plus / qwen-turbo
 models:
-  cio: "claude-opus-4-20250514"          # CIO 最终决策用最强推理模型
-  analyst: "claude-sonnet-4-20250514"    # 分析师辩论用
-  data_extract: "claude-haiku-4-5-20251001"  # 数据提取/摘要用快速模型
-  # OpenAI 兼容模式时的模型名示例:
-  #   cio: "gpt-4o"                      # 或 deepseek-chat, qwen-max
-  #   analyst: "gpt-4o-mini"             # 或 deepseek-chat, qwen-plus
-  #   data_extract: "gpt-4o-mini"        # 或 deepseek-chat, qwen-turbo
+  # cio: "qwen-max"               # CIO 最终决策 (最强推理)
+  # analyst: "qwen-plus"          # 分析师辩论 (平衡性能与成本)
+  # data_extract: "qwen-turbo"    # 数据提取 (快速)
+  # Anthropic 模型 (切换到 Claude 时使用):
+  #   cio: "claude-opus-4-20250514"
+  #   analyst: "claude-sonnet-4-20250514"
+  #   data_extract: "claude-haiku-4-5-20251001"
 
 # 辩论参数
 debate:
@@ -41,6 +42,7 @@ agent_weights:
   risk_manager: 1.1
 
 # 数据获取配置
+# 美股推荐设置 FMP_API_KEY (免费250次/天): https://site.financialmodelingprep.com/developer/docs
 data:
   price_lookback: "1y"             # 价格数据回溯周期
   cache_hours: 6                   # 缓存时效(小时)

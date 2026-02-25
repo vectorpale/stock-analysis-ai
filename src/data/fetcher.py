@@ -1,8 +1,14 @@
 """
 数据获取模块 - 多源行情与财务数据
 支持美股、港股、A股，带缓存和降级策略
+
+数据源优先级:
+  美股: FMP → yfinance → AkShare
+  港股: AkShare → yfinance
+  A股: AkShare → Tushare → BaoStock
 """
 
+import json
 import os
 import logging
 import hashlib
@@ -12,11 +18,16 @@ from typing import Optional
 
 import pandas as pd
 import numpy as np
+import requests
 
 logger = logging.getLogger(__name__)
 
 CACHE_DIR = Path("data/cache")
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+# JSON 缓存目录 (给 FMP 等非 DataFrame 数据用)
+JSON_CACHE_DIR = Path("data/cache/json")
+JSON_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
 class DataFetcher:
@@ -24,6 +35,8 @@ class DataFetcher:
 
     def __init__(self, cache_hours: int = 6):
         self.cache_hours = cache_hours
+        self.fmp_key = os.environ.get("FMP_API_KEY", "").strip()
+        self._fmp_base = "https://financialmodelingprep.com/api/v3"
 
     # ------------------------------------------------------------------
     # 市场检测
@@ -37,7 +50,7 @@ class DataFetcher:
         return "us"
 
     # ------------------------------------------------------------------
-    # 缓存
+    # 缓存 (DataFrame)
     # ------------------------------------------------------------------
     def _cache_key(self, symbol: str, data_type: str) -> Path:
         h = hashlib.md5(f"{symbol}_{data_type}".encode()).hexdigest()[:12]
@@ -62,6 +75,57 @@ class DataFetcher:
             logger.warning(f"缓存写入失败: {e}")
 
     # ------------------------------------------------------------------
+    # 缓存 (JSON - FMP 等)
+    # ------------------------------------------------------------------
+    def _json_cache_path(self, symbol: str, data_type: str) -> Path:
+        h = hashlib.md5(f"{symbol}_{data_type}".encode()).hexdigest()[:12]
+        return JSON_CACHE_DIR / f"{h}.json"
+
+    def _get_json_cached(self, symbol: str, data_type: str):
+        path = self._json_cache_path(symbol, data_type)
+        if path.exists():
+            age = datetime.now().timestamp() - path.stat().st_mtime
+            if age < self.cache_hours * 3600:
+                try:
+                    return json.loads(path.read_text(encoding="utf-8"))
+                except Exception:
+                    pass
+        return None
+
+    def _set_json_cache(self, symbol: str, data_type: str, data):
+        try:
+            path = self._json_cache_path(symbol, data_type)
+            path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        except Exception as e:
+            logger.warning(f"JSON 缓存写入失败: {e}")
+
+    # ------------------------------------------------------------------
+    # FMP API 调用
+    # ------------------------------------------------------------------
+    def _fmp_get(self, endpoint: str, params: dict = None) -> Optional[list | dict]:
+        """调用 FMP API，返回 JSON 数据"""
+        if not self.fmp_key:
+            return None
+        url = f"{self._fmp_base}/{endpoint}"
+        all_params = {"apikey": self.fmp_key}
+        if params:
+            all_params.update(params)
+        try:
+            resp = requests.get(url, params=all_params, timeout=15)
+            if resp.status_code == 200:
+                data = resp.json()
+                if isinstance(data, dict) and data.get("Error Message"):
+                    logger.warning(f"FMP 错误: {data['Error Message']}")
+                    return None
+                return data
+            else:
+                logger.warning(f"FMP HTTP {resp.status_code}: {endpoint}")
+                return None
+        except Exception as e:
+            logger.warning(f"FMP 请求失败 {endpoint}: {e}")
+            return None
+
+    # ------------------------------------------------------------------
     # 价格数据
     # ------------------------------------------------------------------
     def fetch_price_data(self, symbol: str, period: str = "1y") -> Optional[pd.DataFrame]:
@@ -74,7 +138,9 @@ class DataFetcher:
         df = None
 
         if market == "us":
-            df = self._fetch_yfinance(symbol, period)
+            df = self._fetch_fmp_price(symbol, period)
+            if df is None:
+                df = self._fetch_yfinance(symbol, period)
             if df is None:
                 df = self._fetch_akshare_us(symbol, period)
         elif market == "hk":
@@ -102,6 +168,15 @@ class DataFetcher:
         if cached is not None:
             return {"_cached": True, "data": cached}
 
+        market = self.detect_market(symbol)
+
+        # FMP 优先 (美股)
+        if market == "us" and self.fmp_key:
+            result = self._fetch_fmp_financials(symbol)
+            if result and any(v for v in result.values() if v):
+                return result
+
+        # yfinance 兜底
         result = {}
         try:
             import yfinance as yf
@@ -120,6 +195,15 @@ class DataFetcher:
 
     def fetch_key_metrics(self, symbol: str) -> dict:
         """获取关键估值与经营指标"""
+        market = self.detect_market(symbol)
+
+        # FMP 优先 (美股)
+        if market == "us" and self.fmp_key:
+            result = self._fetch_fmp_key_metrics(symbol)
+            if result and not result.get("error"):
+                return result
+
+        # yfinance 兜底
         try:
             import yfinance as yf
             ticker = yf.Ticker(symbol)
@@ -193,9 +277,186 @@ class DataFetcher:
             logger.warning(f"新闻获取失败 {symbol}: {e}")
             return []
 
-    # ------------------------------------------------------------------
+    # ==================================================================
+    # FMP 数据源实现
+    # ==================================================================
+    def _fetch_fmp_price(self, symbol: str, period: str) -> Optional[pd.DataFrame]:
+        """FMP 历史价格数据"""
+        start = self._period_to_start(period)
+        data = self._fmp_get(
+            f"historical-price-full/{symbol}",
+            {"from": start.strftime("%Y-%m-%d")},
+        )
+        if not data or "historical" not in data:
+            return None
+        try:
+            df = pd.DataFrame(data["historical"])
+            df["date"] = pd.to_datetime(df["date"])
+            df.set_index("date", inplace=True)
+            df = df.rename(columns={
+                "open": "Open", "high": "High", "low": "Low",
+                "close": "Close", "volume": "Volume",
+            })
+            df = df[["Open", "High", "Low", "Close", "Volume"]]
+            df = df.sort_index()
+            logger.info(f"FMP 价格数据获取成功: {symbol} ({len(df)} 条)")
+            return df
+        except Exception as e:
+            logger.warning(f"FMP 价格解析失败 {symbol}: {e}")
+            return None
+
+    def _fetch_fmp_financials(self, symbol: str) -> dict:
+        """FMP 财务报表 (利润表、资产负债表、现金流)"""
+        cached = self._get_json_cached(symbol, "fmp_financials")
+        if cached:
+            logger.info(f"FMP 财报 (缓存): {symbol}")
+            return cached
+
+        result = {}
+        endpoints = {
+            "income_statement": f"income-statement/{symbol}",
+            "balance_sheet": f"balance-sheet-statement/{symbol}",
+            "cash_flow": f"cash-flow-statement/{symbol}",
+            "quarterly_income": f"income-statement/{symbol}",
+            "quarterly_balance": f"balance-sheet-statement/{symbol}",
+            "quarterly_cashflow": f"cash-flow-statement/{symbol}",
+        }
+        quarterly_keys = {"quarterly_income", "quarterly_balance", "quarterly_cashflow"}
+
+        for key, endpoint in endpoints.items():
+            params = {"limit": 8}
+            if key in quarterly_keys:
+                params["period"] = "quarter"
+            data = self._fmp_get(endpoint, params)
+            if data and isinstance(data, list):
+                result[key] = self._fmp_statements_to_dict(data)
+
+        if any(v for v in result.values() if v):
+            logger.info(f"FMP 财报获取成功: {symbol}")
+            self._set_json_cache(symbol, "fmp_financials", result)
+        return result
+
+    def _fetch_fmp_key_metrics(self, symbol: str) -> dict:
+        """FMP 公司概要 + 关键指标"""
+        cached = self._get_json_cached(symbol, "fmp_metrics")
+        if cached:
+            logger.info(f"FMP 指标 (缓存): {symbol}")
+            return cached
+
+        # 1. 公司 profile
+        profile_data = self._fmp_get(f"profile/{symbol}")
+        if not profile_data or not isinstance(profile_data, list) or len(profile_data) == 0:
+            return {"company_name": symbol, "error": "FMP profile not found"}
+        p = profile_data[0]
+
+        # 2. key-metrics-ttm
+        km_data = self._fmp_get(f"key-metrics-ttm/{symbol}")
+        km = km_data[0] if km_data and isinstance(km_data, list) and len(km_data) > 0 else {}
+
+        # 3. ratios-ttm
+        ratios_data = self._fmp_get(f"ratios-ttm/{symbol}")
+        r = ratios_data[0] if ratios_data and isinstance(ratios_data, list) and len(ratios_data) > 0 else {}
+
+        # 4. analyst estimates (如有)
+        est_data = self._fmp_get(f"analyst-estimates/{symbol}", {"limit": 1})
+        est = est_data[0] if est_data and isinstance(est_data, list) and len(est_data) > 0 else {}
+
+        result = {
+            "company_name": p.get("companyName", symbol),
+            "sector": p.get("sector", "Unknown"),
+            "industry": p.get("industry", "Unknown"),
+            "market_cap": p.get("mktCap"),
+            "enterprise_value": km.get("enterpriseValueTTM"),
+            "pe_ratio": r.get("peRatioTTM"),
+            "forward_pe": km.get("peRatioTTM"),  # FMP TTM as proxy
+            "peg_ratio": r.get("pegRatioTTM"),
+            "pb_ratio": r.get("priceToBookRatioTTM"),
+            "ps_ratio": r.get("priceToSalesRatioTTM"),
+            "ev_ebitda": km.get("enterpriseValueOverEBITDATTM"),
+            "ev_revenue": r.get("enterpriseValueMultipleTTM"),
+            "profit_margin": r.get("netProfitMarginTTM"),
+            "operating_margin": r.get("operatingProfitMarginTTM"),
+            "gross_margin": r.get("grossProfitMarginTTM"),
+            "roe": r.get("returnOnEquityTTM"),
+            "roa": r.get("returnOnAssetsTTM"),
+            "revenue_growth": km.get("revenuePerShareTTM"),  # 需要后续计算
+            "earnings_growth": None,
+            "revenue": km.get("revenuePerShareTTM"),
+            "net_income": km.get("netIncomePerShareTTM"),
+            "total_debt": km.get("totalDebtToCapitalizationTTM"),
+            "total_cash": km.get("cashPerShareTTM"),
+            "debt_to_equity": r.get("debtEquityRatioTTM"),
+            "current_ratio": r.get("currentRatioTTM"),
+            "free_cash_flow": km.get("freeCashFlowPerShareTTM"),
+            "operating_cash_flow": km.get("operatingCashFlowPerShareTTM"),
+            "dividend_yield": r.get("dividendYielTTM"),  # FMP typo in their API
+            "beta": p.get("beta"),
+            "52w_high": p.get("range", "").split("-")[-1].strip() if p.get("range") else None,
+            "52w_low": p.get("range", "").split("-")[0].strip() if p.get("range") else None,
+            "50d_avg": p.get("price"),  # proxy
+            "200d_avg": None,
+            "avg_volume": p.get("volAvg"),
+            "shares_outstanding": km.get("marketCapTTM") / p.get("price", 1) if p.get("price") else None,
+            "float_shares": None,
+            "insider_pct": None,
+            "institution_pct": None,
+            "short_ratio": None,
+            "target_price": p.get("dcf"),
+            "analyst_rating": None,
+            "num_analysts": est.get("numberAnalystEstimatedRevenue"),
+        }
+
+        # FMP 返回 margin/ratio 已经是小数 (0.xx)，与 yfinance 一致
+        # 尝试从 income-statement 计算增长率
+        try:
+            income = self._fmp_get(f"income-statement/{symbol}", {"limit": 2})
+            if income and len(income) >= 2:
+                rev_new = income[0].get("revenue", 0)
+                rev_old = income[1].get("revenue", 1)
+                if rev_old and rev_old != 0:
+                    result["revenue_growth"] = (rev_new - rev_old) / abs(rev_old)
+                result["revenue"] = rev_new
+                result["net_income"] = income[0].get("netIncome")
+
+                ni_new = income[0].get("netIncome", 0)
+                ni_old = income[1].get("netIncome", 1)
+                if ni_old and ni_old != 0:
+                    result["earnings_growth"] = (ni_new - ni_old) / abs(ni_old)
+        except Exception:
+            pass
+
+        # 清理 52w high/low 为 float
+        for key in ("52w_high", "52w_low"):
+            if isinstance(result[key], str):
+                try:
+                    result[key] = float(result[key])
+                except (ValueError, TypeError):
+                    result[key] = None
+
+        self._set_json_cache(symbol, "fmp_metrics", result)
+        logger.info(f"FMP 指标获取成功: {symbol}")
+        return result
+
+    @staticmethod
+    def _fmp_statements_to_dict(records: list) -> dict:
+        """将 FMP 报表记录列表转为 {date: {item: value}} 格式"""
+        result = {}
+        skip_keys = {"date", "symbol", "reportedCurrency", "cik", "fillingDate",
+                      "acceptedDate", "calendarYear", "period", "link", "finalLink"}
+        for record in records[:4]:  # 最近4期
+            date_key = record.get("date", "unknown")
+            items = {}
+            for k, v in record.items():
+                if k not in skip_keys and v is not None:
+                    # 转换 camelCase 为可读名
+                    items[k] = float(v) if isinstance(v, (int, float)) else v
+            if items:
+                result[date_key] = items
+        return result
+
+    # ==================================================================
     # 技术指标
-    # ------------------------------------------------------------------
+    # ==================================================================
     def compute_technical_indicators(self, df: pd.DataFrame) -> dict:
         """计算常用技术指标"""
         if df is None or df.empty:
@@ -280,7 +541,7 @@ class DataFetcher:
             return {"current_price": round(df["Close"].iloc[-1], 2)}
 
     # ------------------------------------------------------------------
-    # 数据源实现
+    # 数据源实现 (yfinance / akshare / tushare / baostock)
     # ------------------------------------------------------------------
     def _fetch_yfinance(self, symbol: str, period: str) -> Optional[pd.DataFrame]:
         try:

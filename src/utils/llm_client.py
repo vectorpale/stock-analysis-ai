@@ -14,22 +14,32 @@ logger = logging.getLogger(__name__)
 @dataclass
 class LLMProvider:
     """LLM 提供商配置"""
-    provider: str = "anthropic"       # "anthropic" | "openai_compatible"
+    provider: str = "openai_compatible"  # "openai_compatible" (默认) | "anthropic"
     api_key: str = ""
-    base_url: str = ""                # OpenAI 兼容接口的 base URL
+    base_url: str = ""                   # OpenAI 兼容接口的 base URL
     # 模型映射: 角色 → 实际模型ID
     model_cio: str = ""
     model_analyst: str = ""
     model_data: str = ""
 
-    # Anthropic 默认模型
+    # 通义千问默认模型 (默认 provider)
+    QWEN_DEFAULTS = {
+        "cio": "qwen-max",              # 最强推理
+        "analyst": "qwen-plus",          # 平衡性能与成本
+        "data": "qwen-turbo",            # 快速处理
+    }
+
+    # 通义千问 Base URL
+    QWEN_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
+    # Anthropic 默认模型 (备选)
     ANTHROPIC_DEFAULTS = {
         "cio": "claude-opus-4-20250514",
         "analyst": "claude-sonnet-4-20250514",
         "data": "claude-haiku-4-5-20251001",
     }
 
-    # OpenAI 兼容默认模型 (可被用户覆盖)
+    # 通用 OpenAI 兼容默认模型
     OPENAI_DEFAULTS = {
         "cio": "gpt-4o",
         "analyst": "gpt-4o-mini",
@@ -46,7 +56,12 @@ class LLMProvider:
         if explicit:
             return explicit
 
-        defaults = self.ANTHROPIC_DEFAULTS if self.provider == "anthropic" else self.OPENAI_DEFAULTS
+        if self.provider == "anthropic":
+            defaults = self.ANTHROPIC_DEFAULTS
+        elif self.base_url and "dashscope" in self.base_url:
+            defaults = self.QWEN_DEFAULTS
+        else:
+            defaults = self.OPENAI_DEFAULTS
         return defaults.get(role, "")
 
 
@@ -98,19 +113,26 @@ class LLMClient:
                 "使用 OpenAI 兼容模式需要安装 openai 包:\n"
                 "  pip install openai"
             )
-        key = api_key or os.environ.get("OPENAI_API_KEY", "").strip()
+        key = (api_key
+               or os.environ.get("DASHSCOPE_API_KEY", "").strip()
+               or os.environ.get("OPENAI_API_KEY", "").strip())
         if not key:
             raise ValueError(
                 "未设置 API Key。\n"
-                "请在配置中指定 api_key 或设置环境变量 OPENAI_API_KEY"
+                "请设置 DASHSCOPE_API_KEY (通义千问) 或 OPENAI_API_KEY"
             )
         kwargs = {"api_key": key}
         if base_url:
             kwargs["base_url"] = base_url
         self._openai_client = OpenAI(**kwargs)
         self._call_fn = self._call_openai
-        provider_name = base_url or "OpenAI"
-        logger.info(f"LLM provider: OpenAI Compatible ({provider_name})")
+        if base_url and "dashscope" in base_url:
+            provider_name = "通义千问 (Qwen)"
+        elif base_url:
+            provider_name = base_url
+        else:
+            provider_name = "OpenAI"
+        logger.info(f"LLM provider: {provider_name}")
 
     # ==================================================================
     # 统一调用入口
@@ -193,30 +215,32 @@ def build_provider_from_config(config: dict) -> LLMProvider:
     从 config.yaml 构建 LLMProvider
 
     优先级: 环境变量 > config.yaml > 默认值
-    这样用户交互输入的 Key 能正确覆盖配置文件
+    默认使用通义千问 (Qwen)，用户只需提供 API Key
     """
-    models_cfg = config.get("models", {})
-    provider_cfg = config.get("llm_provider", {})
+    models_cfg = config.get("models") or {}
+    provider_cfg = config.get("llm_provider") or {}
 
     # 环境变量优先 (交互输入的 key 存在环境变量中)
     env_provider = _detect_provider_from_env()
     if env_provider:
-        # 环境变量指定了 provider，但模型名仍从 config 读取
+        # 环境变量指定了 provider，模型名覆盖逻辑
         model_override = os.environ.get("LLM_MODEL_OVERRIDE", "").strip()
-        if env_provider.provider == "openai_compatible" and model_override:
+        if model_override:
             env_provider.model_cio = model_override
             env_provider.model_analyst = model_override
             env_provider.model_data = model_override
-        elif not env_provider.model_cio:
+        elif not env_provider.model_cio and env_provider.provider == "anthropic":
+            # Anthropic: 从 config 读取模型名
             env_provider.model_cio = models_cfg.get("cio", "")
             env_provider.model_analyst = models_cfg.get("analyst", "")
             env_provider.model_data = models_cfg.get("data_extract", "")
+        # Qwen / OpenAI compatible: 使用 get_model() 内置默认值
         return env_provider
 
     # 从 config 读取
-    provider = provider_cfg.get("provider", "anthropic")
+    provider = provider_cfg.get("provider", "openai_compatible")
     api_key = provider_cfg.get("api_key", "")
-    base_url = provider_cfg.get("base_url", "")
+    base_url = provider_cfg.get("base_url", LLMProvider.QWEN_BASE_URL)
 
     return LLMProvider(
         provider=provider,
@@ -229,11 +253,29 @@ def build_provider_from_config(config: dict) -> LLMProvider:
 
 
 def _detect_provider_from_env() -> Optional[LLMProvider]:
-    """从环境变量检测 provider"""
+    """
+    从环境变量检测 provider
+
+    检测顺序:
+    1. DASHSCOPE_API_KEY → 通义千问 (默认推荐)
+    2. ANTHROPIC_API_KEY → Claude
+    3. OPENAI_API_KEY → OpenAI 兼容 (通用)
+    """
+    # 通义千问 (首选)
+    qwen_key = os.environ.get("DASHSCOPE_API_KEY", "").strip()
+    if qwen_key:
+        return LLMProvider(
+            provider="openai_compatible",
+            api_key=qwen_key,
+            base_url=LLMProvider.QWEN_BASE_URL,
+        )
+
+    # Anthropic Claude (备选)
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
     if anthropic_key:
         return LLMProvider(provider="anthropic", api_key=anthropic_key)
 
+    # 通用 OpenAI 兼容 (包含 DASHSCOPE_API_KEY 也可以通过这个)
     openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
     if openai_key:
         base_url = os.environ.get("OPENAI_BASE_URL", "").strip()
