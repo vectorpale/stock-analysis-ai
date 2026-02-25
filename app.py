@@ -46,14 +46,19 @@ with st.sidebar:
     st.caption("多Agent辩论模型 · 基本面深度分析")
     st.divider()
 
-    # API Key
-    api_key = st.text_input(
-        "Anthropic API Key",
-        value=os.environ.get("ANTHROPIC_API_KEY", ""),
-        type="password",
-    )
-    if api_key:
-        os.environ["ANTHROPIC_API_KEY"] = api_key
+    # API Key (仅存于内存，不落盘)
+    has_env_key = bool(os.environ.get("ANTHROPIC_API_KEY", "").strip())
+    if has_env_key:
+        st.success("API Key 已从环境变量加载")
+        api_key = os.environ["ANTHROPIC_API_KEY"]
+    else:
+        api_key = st.text_input(
+            "Anthropic API Key",
+            type="password",
+            help="Key 仅在本次会话中使用，不会保存到文件",
+        )
+        if api_key:
+            os.environ["ANTHROPIC_API_KEY"] = api_key
 
     st.divider()
 

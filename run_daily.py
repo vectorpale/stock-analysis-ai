@@ -27,6 +27,7 @@ from src.agents.engine import DebateEngine
 from src.data.fetcher import DataFetcher
 from src.paper_trading.portfolio import PortfolioManager
 from src.paper_trading.trader import Trader
+from src.utils.secure_key import ensure_api_key, cleanup_api_keys, SensitiveFilter
 
 # 默认自选股列表
 DEFAULT_WATCHLIST = ["LI", "3690.HK", "JOBY", "1810.HK", "GOOGL"]
@@ -130,6 +131,13 @@ def main():
 
     setup_logging(args.verbose)
     logger = logging.getLogger("daily")
+    logging.getLogger().addFilter(SensitiveFilter())
+
+    # 确保 API Key (快照模式不需要 LLM)
+    if not args.snapshot_only and not args.init_watchlist:
+        if not ensure_api_key():
+            logger.error("未提供 API Key，退出")
+            sys.exit(1)
 
     # 初始化组合
     portfolio = PortfolioManager()
@@ -188,6 +196,7 @@ def main():
     portfolio.take_snapshot(prices)
 
     _print_summary(portfolio, prices)
+    cleanup_api_keys()
     logger.info("每日任务完成")
 
 

@@ -19,6 +19,7 @@ load_dotenv()
 
 from src.agents.engine import DebateEngine
 from src.utils.symbol_resolver import resolve_symbol
+from src.utils.secure_key import ensure_api_key, cleanup_api_keys, SensitiveFilter
 
 console = Console()
 
@@ -55,6 +56,14 @@ def main():
 
     setup_logging(args.verbose)
 
+    # 日志脱敏过滤器
+    logging.getLogger().addFilter(SensitiveFilter())
+
+    # 确保 API Key (环境变量 → .env → 交互输入)
+    if not ensure_api_key():
+        console.print("[red]未提供 API Key，退出[/red]")
+        sys.exit(1)
+
     # 解析股票代码 (支持公司名)
     symbol = resolve_symbol(args.symbol, config_path=args.config)
     if symbol != args.symbol:
@@ -73,7 +82,6 @@ def main():
         engine = DebateEngine(config_path=args.config)
     except Exception as e:
         console.print(f"[red]引擎初始化失败: {e}[/red]")
-        console.print("[dim]请确保已设置 ANTHROPIC_API_KEY 环境变量[/dim]")
         sys.exit(1)
 
     # 回调函数: 实时显示进度
@@ -149,6 +157,9 @@ def main():
     if args.json:
         clean_result = _clean_for_json(result)
         print(json.dumps(clean_result, ensure_ascii=False, indent=2))
+
+    # 清理 API Key (从环境变量和内存中擦除)
+    cleanup_api_keys()
 
 
 def _clean_for_json(obj):
