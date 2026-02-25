@@ -1,0 +1,30 @@
+# AI / LLM
+anthropic>=0.40.0
+
+# Data Sources
+yfinance>=0.2.36
+akshare>=1.14.0
+tushare>=1.4.0
+baostock>=0.8.8
+requests>=2.31.0
+
+# Data Processing
+pandas>=2.1.0
+numpy>=1.26.0
+
+# Technical Analysis
+pandas-ta>=0.3.14b
+
+# Visualization
+plotly>=5.18.0
+
+# UI
+streamlit>=1.35.0
+
+# Configuration
+pyyaml>=6.0.1
+
+# Utilities
+python-dotenv>=1.0.0
+tabulate>=0.9.0
+rich>=13.7.0

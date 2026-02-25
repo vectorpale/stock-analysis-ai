@@ -1,0 +1,160 @@
+# ============================================================
+# 个股深度分析系统 - 多Agent辩论模型 配置文件
+# ============================================================
+
+# AI 模型配置
+models:
+  cio: "claude-opus-4-20250514"          # CIO 最终决策用最强推理模型
+  analyst: "claude-sonnet-4-20250514"    # 分析师辩论用
+  data_extract: "claude-haiku-4-5-20251001"  # 数据提取/摘要用快速模型
+
+# 辩论参数
+debate:
+  max_rounds: 3                    # 最大辩论轮数
+  convergence_threshold: 0.80      # 收敛阈值 (0-1)
+  min_confidence_buy: 65           # 最低买入信心阈值
+  risk_veto_enabled: true          # 风控官一票否决权
+
+# 分析师权重
+agent_weights:
+  fundamental_bull: 1.0
+  fundamental_bear: 1.0
+  industry_analyst: 1.2            # 行业分析师权重略高
+  financial_analyst: 1.2           # 财务分析师权重略高
+  macro_strategist: 0.9
+  risk_manager: 1.1
+
+# 数据获取配置
+data:
+  price_lookback: "1y"             # 价格数据回溯周期
+  cache_hours: 6                   # 缓存时效(小时)
+  max_news_items: 20               # 最大新闻条数
+  max_competitors: 5               # 最多分析竞品数量
+
+# 行业分类与竞品映射
+# 格式: 行业名 -> [核心个股列表]
+industry_mapping:
+  # ---- 美股 ----
+  ai_chips:
+    name: "AI 芯片/算力"
+    symbols: ["NVDA", "AMD", "INTC", "AVGO", "QCOM", "MRVL", "ASML", "TSM", "ARM", "MU"]
+    upstream: ["ASML", "LRCX", "AMAT", "KLAC", "SNPS", "CDNS"]
+    downstream: ["MSFT", "GOOGL", "AMZN", "META", "TSLA"]
+
+  cloud_infrastructure:
+    name: "云基础设施"
+    symbols: ["MSFT", "AMZN", "GOOGL", "ORCL", "IBM", "CRM"]
+    upstream: ["NVDA", "AMD", "INTC", "DELL", "HPE"]
+    downstream: ["SNOW", "DDOG", "NET", "PLTR", "MDB"]
+
+  ai_software:
+    name: "AI 应用/软件"
+    symbols: ["CRM", "PLTR", "SNOW", "AI", "PATH", "MDB", "DDOG", "NET"]
+    upstream: ["MSFT", "AMZN", "GOOGL"]
+    downstream: []
+
+  ev_auto:
+    name: "新能源汽车"
+    symbols: ["TSLA", "RIVN", "LCID", "NIO", "XPEV", "LI"]
+    upstream: ["ALB", "SQM", "LAC", "PANW"]
+    downstream: ["UBER", "LYFT"]
+
+  semiconductor_equipment:
+    name: "半导体设备"
+    symbols: ["ASML", "LRCX", "AMAT", "KLAC", "TER", "ONTO"]
+    upstream: ["CTAS", "APD", "ECL"]
+    downstream: ["TSM", "INTC", "NVDA", "AMD", "QCOM"]
+
+  social_media:
+    name: "社交媒体/广告"
+    symbols: ["META", "SNAP", "PINS", "RDDT"]
+    upstream: ["NVDA", "GOOGL"]
+    downstream: ["TTD", "MGNI", "PUBM"]
+
+  fintech:
+    name: "金融科技"
+    symbols: ["V", "MA", "PYPL", "SQ", "AFRM", "SOFI", "COIN"]
+    upstream: ["ORCL", "MSFT"]
+    downstream: []
+
+  biotech:
+    name: "生物医药"
+    symbols: ["LLY", "NVO", "ABBV", "MRK", "PFE", "AMGN", "GILD", "BIIB", "REGN", "VRTX"]
+    upstream: ["TMO", "DHR", "A", "ILMN"]
+    downstream: ["UNH", "CVS", "CI", "HUM"]
+
+  consumer_tech:
+    name: "消费电子"
+    symbols: ["AAPL", "DELL", "HPQ", "LOGI", "SONO"]
+    upstream: ["TSM", "QCOM", "AVGO", "TXN"]
+    downstream: ["AMZN", "BBY", "WMT"]
+
+  # ---- 港股 ----
+  hk_internet:
+    name: "港股互联网"
+    symbols: ["0700.HK", "9988.HK", "3690.HK", "9618.HK", "1024.HK", "9626.HK"]
+    upstream: ["0981.HK", "TSM"]
+    downstream: []
+
+  hk_ai:
+    name: "港股 AI 链"
+    symbols: ["0020.HK", "0981.HK", "1810.HK", "2382.HK", "0268.HK"]
+    upstream: ["NVDA", "ASML"]
+    downstream: ["0700.HK", "9988.HK"]
+
+  hk_ev:
+    name: "港股新能源车"
+    symbols: ["9866.HK", "2015.HK", "0175.HK", "9868.HK", "1211.HK"]
+    upstream: ["3968.HK", "1772.HK", "0489.HK"]
+    downstream: []
+
+  hk_finance:
+    name: "港股金融"
+    symbols: ["0005.HK", "1398.HK", "3988.HK", "0388.HK", "2318.HK", "1299.HK"]
+    upstream: []
+    downstream: []
+
+  hk_pharma:
+    name: "港股医药"
+    symbols: ["1177.HK", "2269.HK", "9926.HK", "6160.HK", "1801.HK"]
+    upstream: ["TMO", "DHR"]
+    downstream: []
+
+  # ---- A股 ----
+  a_ai:
+    name: "A股 AI/算力"
+    symbols: ["002230.SZ", "688256.SH", "603019.SH", "300474.SZ", "688041.SH"]
+    upstream: ["NVDA", "ASML"]
+    downstream: []
+
+  a_semiconductor:
+    name: "A股半导体"
+    symbols: ["688981.SH", "002371.SZ", "688396.SH", "603501.SH", "002049.SZ"]
+    upstream: ["ASML", "LRCX", "AMAT"]
+    downstream: []
+
+  a_ev:
+    name: "A股新能源车"
+    symbols: ["300750.SZ", "002594.SZ", "601238.SH", "002460.SZ", "300014.SZ"]
+    upstream: ["002460.SZ", "300014.SZ"]
+    downstream: []
+
+  a_pharma:
+    name: "A股医药"
+    symbols: ["600276.SH", "000538.SZ", "300760.SZ", "603259.SH", "300347.SZ"]
+    upstream: []
+    downstream: []
+
+# 估值参考基准
+valuation_benchmarks:
+  growth_tech:
+    pe_range: [20, 60]
+    ps_range: [5, 20]
+    peg_range: [0.5, 2.0]
+  value:
+    pe_range: [8, 20]
+    pb_range: [0.8, 3.0]
+    dividend_yield_min: 0.02
+  biotech:
+    ps_range: [3, 30]
+    ev_ebitda_range: [10, 40]
