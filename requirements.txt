@@ -1,5 +1,6 @@
 # AI / LLM
 anthropic>=0.40.0
+openai>=1.0.0              # 可选: OpenAI 兼容模式 (GPT/DeepSeek/Qwen/Ollama)
 
 # Data Sources
 yfinance>=0.2.36

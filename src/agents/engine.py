@@ -15,7 +15,6 @@ from datetime import datetime
 from typing import Optional
 
 import yaml
-from anthropic import Anthropic
 
 from src.agents.definitions import (
     AGENT_ROLES,
@@ -45,6 +44,7 @@ from src.utils.helpers import (
     parse_json_response,
     weighted_score_aggregation,
 )
+from src.utils.llm_client import LLMClient, LLMProvider, build_provider_from_config
 
 logger = logging.getLogger(__name__)
 
@@ -52,26 +52,22 @@ logger = logging.getLogger(__name__)
 class DebateEngine:
     """多Agent辩论引擎"""
 
-    def __init__(self, config_path: str = "config/config.yaml"):
+    def __init__(self, config_path: str = "config/config.yaml",
+                 provider_override: Optional[LLMProvider] = None):
         with open(config_path, "r", encoding="utf-8") as f:
             self.config = yaml.safe_load(f)
 
-        api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
-        if not api_key:
-            raise ValueError(
-                "未设置 ANTHROPIC_API_KEY 环境变量。\n"
-                "请通过以下方式之一设置:\n"
-                "  1. 创建 .env 文件: echo 'ANTHROPIC_API_KEY=sk-ant-...' > .env\n"
-                "  2. 导出环境变量: export ANTHROPIC_API_KEY=sk-ant-...\n"
-                "  3. GitHub Codespace: Settings → Secrets → 添加 ANTHROPIC_API_KEY"
-            )
-        self.client = Anthropic(api_key=api_key)
+        # LLM 客户端 (支持 Anthropic / OpenAI 兼容)
+        if provider_override:
+            provider = provider_override
+        else:
+            provider = build_provider_from_config(self.config)
+        self.llm = LLMClient(provider)
 
-        # 模型配置
-        models = self.config.get("models", {})
-        self.cio_model = models.get("cio", "claude-opus-4-20250514")
-        self.analyst_model = models.get("analyst", "claude-sonnet-4-20250514")
-        self.data_model = models.get("data_extract", "claude-haiku-4-5-20251001")
+        # 模型配置 (从 provider 获取，已含默认值)
+        self.cio_model = provider.get_model("cio")
+        self.analyst_model = provider.get_model("analyst")
+        self.data_model = provider.get_model("data")
 
         # 辩论参数
         debate_cfg = self.config.get("debate", {})
@@ -1006,41 +1002,12 @@ class DebateEngine:
     # LLM 调用
     # ==================================================================
     def _call_llm(self, model: str, system: str, user_message: str) -> str:
-        """调用 Anthropic LLM"""
-        try:
-            response = self.client.messages.create(
-                model=model,
-                max_tokens=8192,
-                system=system,
-                messages=[{"role": "user", "content": user_message}],
-            )
-            # 统计 token 用量
-            usage = response.usage
-            input_tokens = getattr(usage, "input_tokens", 0)
-            output_tokens = getattr(usage, "output_tokens", 0)
-            if not hasattr(self, "_token_usage"):
-                self._token_usage = {"calls": 0, "input_tokens": 0, "output_tokens": 0, "by_model": {}}
-            self._token_usage["calls"] += 1
-            self._token_usage["input_tokens"] += input_tokens
-            self._token_usage["output_tokens"] += output_tokens
-            if model not in self._token_usage["by_model"]:
-                self._token_usage["by_model"][model] = {"calls": 0, "input_tokens": 0, "output_tokens": 0}
-            self._token_usage["by_model"][model]["calls"] += 1
-            self._token_usage["by_model"][model]["input_tokens"] += input_tokens
-            self._token_usage["by_model"][model]["output_tokens"] += output_tokens
-            logger.debug(f"Token: +{input_tokens}in/{output_tokens}out ({model.split('-')[1]})")
-            return response.content[0].text
-        except Exception as e:
-            error_msg = str(e)
-            if "authentication" in error_msg.lower() or "api_key" in error_msg.lower() or "auth_token" in error_msg.lower():
-                logger.error(f"API 认证失败: {e}\n请检查 ANTHROPIC_API_KEY 是否正确设置")
-            else:
-                logger.error(f"LLM 调用失败 ({model}): {e}")
-            return ""
+        """调用 LLM (自动路由到配置的 provider)"""
+        return self.llm.call(model, system, user_message)
 
     def get_token_usage(self) -> dict:
         """返回累计 token 用量统计"""
-        return getattr(self, "_token_usage", {"calls": 0, "input_tokens": 0, "output_tokens": 0, "by_model": {}})
+        return self.llm.get_token_usage()
 
     # ==================================================================
     # 报告生成

@@ -14,7 +14,7 @@ import sys
 
 logger = logging.getLogger(__name__)
 
-_SENSITIVE_KEYS = ["ANTHROPIC_API_KEY"]
+_SENSITIVE_KEYS = ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"]
 
 
 def _mask(key: str) -> str:
@@ -44,45 +44,100 @@ def ensure_api_key(env_var: str = "ANTHROPIC_API_KEY", prompt_if_missing: bool =
     确保 API Key 已设置。
 
     查找顺序:
-    1. 环境变量已有值 → 直接使用
+    1. 环境变量已有值 (ANTHROPIC_API_KEY 或 OPENAI_API_KEY) → 直接使用
     2. .env 文件 (通过 dotenv 已加载)
     3. 交互式提示用户输入 (不回显)
 
     Returns:
         True if key is available, False if user skipped
     """
-    existing = os.environ.get(env_var, "").strip()
-    if existing:
-        logger.debug(f"{env_var} 已设置 ({_mask(existing)})")
-        return True
+    # 检查是否已有任意一个 Key
+    for key_name in _SENSITIVE_KEYS:
+        existing = os.environ.get(key_name, "").strip()
+        if existing:
+            logger.debug(f"{key_name} 已设置 ({_mask(existing)})")
+            return True
 
     if not prompt_if_missing:
         return False
 
-    # 交互式输入
-    print(f"\n{'='*50}")
-    print(f"  需要 Anthropic API Key 才能运行分析")
-    print(f"  (输入不会显示在屏幕上，也不会保存到文件)")
-    print(f"{'='*50}")
+    # 交互式输入 — 让用户选择 provider
+    print(f"\n{'='*56}")
+    print(f"  未检测到 API Key，请选择 LLM 服务商:")
+    print(f"  [1] Anthropic (Claude)")
+    print(f"  [2] OpenAI 兼容 (GPT/DeepSeek/Qwen/Ollama 等)")
+    print(f"{'='*56}")
 
     try:
-        key = getpass.getpass(prompt="请输入 API Key: ").strip()
+        choice = input("请选择 [1/2] (默认1): ").strip() or "1"
+    except (EOFError, KeyboardInterrupt):
+        print("\n已取消")
+        return False
+
+    if choice == "2":
+        return _prompt_openai_compatible()
+    else:
+        return _prompt_anthropic()
+
+
+def _prompt_anthropic() -> bool:
+    """交互式输入 Anthropic API Key"""
+    print("  输入不会显示在屏幕上，也不会保存到文件")
+    try:
+        key = getpass.getpass(prompt="Anthropic API Key: ").strip()
     except (EOFError, KeyboardInterrupt):
         print("\n已取消")
         return False
 
     if not key:
-        print("未输入 Key，退出")
+        print("未输入 Key")
         return False
 
-    # 仅设置到当前进程环境变量（不写文件）
-    os.environ[env_var] = key
-    print(f"  已设置 {env_var} ({_mask(key)})")
+    os.environ["ANTHROPIC_API_KEY"] = key
+    print(f"  已设置 ANTHROPIC_API_KEY ({_mask(key)})")
     print(f"  此 Key 仅在本次运行期间有效，进程结束后自动清除\n")
+    _register_cleanup("ANTHROPIC_API_KEY", key)
+    return True
 
-    # 注册退出时清理
-    _register_cleanup(env_var, key)
 
+def _prompt_openai_compatible() -> bool:
+    """交互式输入 OpenAI 兼容配置"""
+    print("  输入不会显示在屏幕上，也不会保存到文件")
+    print()
+
+    # Base URL
+    print("  常见 Base URL:")
+    print("    DeepSeek:  https://api.deepseek.com")
+    print("    阿里通义:   https://dashscope.aliyuncs.com/compatible-mode/v1")
+    print("    Ollama:    http://localhost:11434/v1")
+    print("    OpenAI:    (留空即可)")
+    print()
+
+    try:
+        base_url = input("Base URL (留空=OpenAI官方): ").strip()
+        key = getpass.getpass(prompt="API Key: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print("\n已取消")
+        return False
+
+    if not key:
+        print("未输入 Key")
+        return False
+
+    os.environ["OPENAI_API_KEY"] = key
+    if base_url:
+        os.environ["OPENAI_BASE_URL"] = base_url
+
+    # 让用户指定模型
+    print()
+    model = input("模型名称 (如 deepseek-chat, gpt-4o, qwen-plus, 留空=gpt-4o): ").strip()
+    if model:
+        os.environ["LLM_MODEL_OVERRIDE"] = model
+
+    provider_name = base_url or "OpenAI"
+    print(f"  已设置: {provider_name} ({_mask(key)})")
+    print(f"  此配置仅在本次运行期间有效，进程结束后自动清除\n")
+    _register_cleanup("OPENAI_API_KEY", key)
     return True
 
 

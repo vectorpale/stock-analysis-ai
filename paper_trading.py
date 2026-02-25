@@ -71,19 +71,40 @@ with st.sidebar:
     st.caption("多Agent辩论 · 自动交易验证")
     st.divider()
 
-    # API Key (仅存于内存，不落盘)
-    has_env_key = bool(os.environ.get("ANTHROPIC_API_KEY", "").strip())
-    if has_env_key:
-        st.success("API Key 已从环境变量加载")
-        api_key = os.environ["ANTHROPIC_API_KEY"]
+    # LLM 服务商选择 (Key 仅存于内存，不落盘)
+    has_anthropic = bool(os.environ.get("ANTHROPIC_API_KEY", "").strip())
+    has_openai = bool(os.environ.get("OPENAI_API_KEY", "").strip())
+
+    if has_anthropic or has_openai:
+        provider_name = "Anthropic" if has_anthropic else "OpenAI Compatible"
+        st.success(f"API Key 已加载 ({provider_name})")
+        api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("OPENAI_API_KEY")
     else:
-        api_key = st.text_input(
-            "Anthropic API Key",
-            type="password",
-            help="Key 仅在本次会话中使用，不会保存到文件",
+        provider_choice = st.selectbox(
+            "LLM 服务商",
+            ["Anthropic (Claude)", "OpenAI 兼容 (GPT/DeepSeek/Qwen/Ollama)"],
         )
-        if api_key:
-            os.environ["ANTHROPIC_API_KEY"] = api_key
+        if "OpenAI" in provider_choice:
+            base_url = st.text_input(
+                "Base URL",
+                placeholder="https://api.deepseek.com",
+                help="留空=OpenAI官方, DeepSeek: https://api.deepseek.com",
+            )
+            api_key = st.text_input("API Key", type="password",
+                                    help="Key 仅在本次会话中使用")
+            model_name = st.text_input("模型名称", value="gpt-4o",
+                                       help="如 gpt-4o, deepseek-chat, qwen-plus")
+            if api_key:
+                os.environ["OPENAI_API_KEY"] = api_key
+                if base_url:
+                    os.environ["OPENAI_BASE_URL"] = base_url
+                if model_name:
+                    os.environ["LLM_MODEL_OVERRIDE"] = model_name
+        else:
+            api_key = st.text_input("Anthropic API Key", type="password",
+                                    help="Key 仅在本次会话中使用")
+            if api_key:
+                os.environ["ANTHROPIC_API_KEY"] = api_key
 
     st.divider()
 
