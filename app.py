@@ -241,12 +241,76 @@ if analyze_btn and api_key:
             for arg in cio.get("key_bear_arguments", []):
                 st.error(f"- {arg}")
 
+        # CIO 目标价估值依据
+        if cio.get("target_price_basis"):
+            st.subheader("目标价估值依据")
+            st.info(cio["target_price_basis"])
+
         # 决定性因素
         decisive = cio.get("decisive_factors", [])
         if decisive:
             st.subheader("决定性因素")
             for d in decisive:
                 st.warning(f"* {d}")
+
+        # ---- 量化估值分析 ----
+        val_data = summary.get("valuation", {})
+        if val_data:
+            st.divider()
+            st.header("量化估值分析")
+
+            grade_colors = {
+                "CHEAP": "green", "FAIR": "orange",
+                "EXPENSIVE": "red", "BUBBLE": "red",
+            }
+            grade = val_data.get("valuation_grade", "N/A")
+
+            val_cols = st.columns(4)
+            val_cols[0].metric("估值等级", grade)
+            val_cols[1].metric("公允价值",
+                f"${val_data.get('fair_value', 0):.2f}",
+                f"{val_data.get('upside_pct', 0):+.1f}%")
+            val_cols[2].metric("牛市目标", f"${val_data.get('target_bull', 0):.2f}")
+            val_cols[3].metric("熊市目标", f"${val_data.get('target_bear', 0):.2f}")
+
+            st.caption(
+                f"主要估值方法: {val_data.get('primary_method', 'N/A')} | "
+                f"综合使用 {val_data.get('methods_count', 0)} 种方法"
+            )
+
+            # 估值区间可视化
+            current_price = summary.get("current_price")
+            if current_price and val_data.get("target_bear") and val_data.get("target_bull"):
+                import plotly.graph_objects as go
+
+                bear = val_data["target_bear"]
+                base = val_data.get("target_base", val_data.get("fair_value", 0))
+                bull = val_data["target_bull"]
+                fair = val_data.get("fair_value", base)
+
+                fig_val = go.Figure()
+                # Bear to bull range bar
+                fig_val.add_trace(go.Bar(
+                    x=[bull - bear], y=["估值区间"],
+                    base=[bear], orientation="h",
+                    marker_color="rgba(100, 100, 100, 0.3)",
+                    name="估值区间", showlegend=False,
+                ))
+                # Current price marker
+                fig_val.add_vline(x=current_price, line_dash="dash",
+                                  line_color="#ffa726", annotation_text=f"当前 ${current_price:.2f}")
+                # Fair value marker
+                fig_val.add_vline(x=fair, line_dash="solid",
+                                  line_color="#00d4aa", annotation_text=f"公允 ${fair:.2f}")
+
+                fig_val.update_layout(
+                    title="估值区间 (熊市 ← → 牛市)",
+                    xaxis_title="价格 ($)",
+                    template="plotly_dark",
+                    height=200,
+                    margin=dict(l=20, r=20, t=40, b=40),
+                )
+                st.plotly_chart(fig_val, use_container_width=True)
 
         # ---- 各分析师立场 ----
         st.divider()

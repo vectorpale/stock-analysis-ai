@@ -35,6 +35,7 @@ from src.agents.memory import AnalysisMemory
 from src.data.fetcher import DataFetcher
 from src.data.industry import IndustryAnalyzer
 from src.data.news import NewsCollector
+from src.valuation.models import run_valuation, format_valuation_text
 from src.utils.helpers import (
     compute_consensus_label,
     compute_convergence_score,
@@ -127,12 +128,26 @@ class DebateEngine:
         notify("数据收集")
         msg("正在收集个股数据...")
         data_pack = self._collect_data(symbol)
+        valuation = data_pack.get("valuation")
+        valuation_summary = {}
+        if valuation:
+            valuation_summary = {
+                "valuation_grade": valuation.valuation_grade,
+                "fair_value": valuation.fair_value,
+                "target_bull": valuation.target_price_bull,
+                "target_base": valuation.target_price_base,
+                "target_bear": valuation.target_price_bear,
+                "upside_pct": valuation.upside_pct,
+                "primary_method": valuation.primary_method,
+                "methods_count": len(valuation.methods_used),
+            }
         result["data_summary"] = {
             "company_name": data_pack["key_metrics"].get("company_name", symbol),
             "sector": data_pack["key_metrics"].get("sector", ""),
             "industry": data_pack["key_metrics"].get("industry", ""),
             "current_price": data_pack["technical_indicators"].get("current_price"),
             "competitors_count": len(data_pack["competitive_comparison"].get("comparison_table", [])) - 1,
+            "valuation": valuation_summary,
         }
         msg(f"数据收集完成: {result['data_summary']['company_name']}")
 
@@ -438,6 +453,7 @@ class DebateEngine:
             company_name=data_pack["key_metrics"].get("company_name", data_pack["symbol"]),
             key_metrics=format_metrics_text(data_pack["key_metrics"]),
             financial_data=format_financials_text(data_pack["financials"]),
+            valuation_data=data_pack.get("valuation_text", "（数据不足，无法进行量化估值）"),
             competitive_comparison=data_pack["competitive_text"],
             supply_chain_info=data_pack["supply_chain_text"],
             news_data=data_pack["news_text"],
@@ -701,11 +717,27 @@ class DebateEngine:
             f"- 距52周高点: {data_pack['technical_indicators'].get('pct_from_52w_high', 'N/A')}%"
         )
 
+        # 估值摘要
+        valuation = data_pack.get("valuation")
+        if valuation:
+            val_summary = (
+                f"- 估值等级: {valuation.valuation_grade}\n"
+                f"- 公允价值: ${valuation.fair_value:.2f} ({valuation.upside_pct:+.1f}%)\n"
+                f"- 牛市目标: ${valuation.target_price_bull:.2f}\n"
+                f"- 基准目标: ${valuation.target_price_base:.2f}\n"
+                f"- 熊市目标: ${valuation.target_price_bear:.2f}\n"
+                f"- 主要方法: {valuation.primary_method}\n"
+                f"- 使用方法: {', '.join(r.method for r in valuation.methods_used)}"
+            )
+        else:
+            val_summary = "（数据不足，无法进行量化估值）"
+
         prompt = RISK_COMMITTEE_PROMPT.format(
             final_positions="\n".join(positions_text),
             weighted_score=f"{weighted_score:+.1f}",
             consensus_level=consensus,
             key_data_summary=key_data,
+            valuation_summary=val_summary,
         )
 
         response = self._call_llm(
@@ -818,6 +850,7 @@ class DebateEngine:
         prompt = CIO_DECISION_PROMPT.format(
             symbol=symbol,
             company_name=company_name,
+            valuation_data=data_pack.get("valuation_text", "（数据不足，无法进行量化估值）"),
             final_positions="\n".join(positions_text),
             key_disagreements=disagreements,
             weighted_score=f"{weighted_score:+.1f}",
@@ -990,6 +1023,22 @@ class DebateEngine:
             "news_text": news_text,
         }
 
+        # 量化估值
+        # 用精确的当前价格更新 key_metrics 以供估值使用
+        if technical.get("current_price"):
+            key_metrics["50d_avg"] = technical["current_price"]  # 确保估值用到准确价格
+        valuation = run_valuation(key_metrics, financials, comparison)
+        if valuation:
+            data_pack["valuation"] = valuation
+            data_pack["valuation_text"] = format_valuation_text(valuation)
+            logger.info(f"估值完成: {valuation.valuation_grade}, "
+                        f"公允价值 ${valuation.fair_value:.2f} "
+                        f"(当前 ${valuation.current_price:.2f}, {valuation.upside_pct:+.1f}%)")
+        else:
+            data_pack["valuation"] = None
+            data_pack["valuation_text"] = "（数据不足，无法进行量化估值）"
+            logger.warning("估值失败: 数据不足")
+
         # 数据质量评估
         data_pack["data_quality_note"] = self._assess_data_quality(data_pack)
 
@@ -1030,6 +1079,21 @@ class DebateEngine:
         lines.append(f"当前价格: ${summary.get('current_price', 'N/A')}")
         lines.append(f"对比竞品数: {summary.get('competitors_count', 0)}")
         lines.append("")
+
+        # 量化估值摘要
+        val = summary.get("valuation", {})
+        if val:
+            lines.append("-" * 40)
+            lines.append("量化估值分析")
+            lines.append("-" * 40)
+            lines.append(f"估值等级: {val.get('valuation_grade', 'N/A')}")
+            lines.append(f"公允价值: ${val.get('fair_value', 'N/A')} ({val.get('upside_pct', 0):+.1f}%)")
+            lines.append(f"牛市目标: ${val.get('target_bull', 'N/A')}")
+            lines.append(f"基准目标: ${val.get('target_base', 'N/A')}")
+            lines.append(f"熊市目标: ${val.get('target_bear', 'N/A')}")
+            lines.append(f"主要方法: {val.get('primary_method', 'N/A')}")
+            lines.append(f"估值方法数: {val.get('methods_count', 0)}")
+            lines.append("")
 
         # CIO 决策摘要
         lines.append("-" * 40)
