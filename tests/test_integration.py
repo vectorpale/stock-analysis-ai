@@ -214,8 +214,8 @@ class TestFMP:
         self.fetcher = DataFetcher()
 
     def test_profile(self):
-        """FMP /profile/{symbol}"""
-        data = self.fetcher._fmp_get("profile/NVDA")
+        """FMP /stable/profile?symbol=NVDA"""
+        data = self.fetcher._fmp_get("profile", {"symbol": "NVDA"})
         assert data and len(data) > 0, "profile 返回空"
         assert_dict_has_keys(
             data[0],
@@ -224,8 +224,8 @@ class TestFMP:
         )
 
     def test_key_metrics_ttm(self):
-        """FMP /key-metrics-ttm/{symbol}"""
-        data = self.fetcher._fmp_get("key-metrics-ttm/NVDA")
+        """FMP /stable/key-metrics-ttm?symbol=NVDA"""
+        data = self.fetcher._fmp_get("key-metrics-ttm", {"symbol": "NVDA"})
         assert data and len(data) > 0, "key-metrics-ttm 返回空"
         assert_dict_has_keys(
             data[0],
@@ -234,8 +234,8 @@ class TestFMP:
         )
 
     def test_income_statement(self):
-        """FMP /income-statement/{symbol}"""
-        data = self.fetcher._fmp_get("income-statement/NVDA", {"limit": 2})
+        """FMP /stable/income-statement?symbol=NVDA"""
+        data = self.fetcher._fmp_get("income-statement", {"symbol": "NVDA", "limit": 2})
         assert data and len(data) > 0, "income-statement 返回空"
         assert_dict_has_keys(
             data[0],
@@ -244,8 +244,8 @@ class TestFMP:
         )
 
     def test_historical_price(self):
-        """FMP /historical-price-full/{symbol}"""
-        data = self.fetcher._fmp_get("historical-price-full/NVDA", {"from": "2024-01-01"})
+        """FMP /stable/historical-price-full?symbol=NVDA"""
+        data = self.fetcher._fmp_get("historical-price-full", {"symbol": "NVDA", "from": "2024-01-01"})
         assert data and "historical" in data, "historical-price-full 返回格式不对"
         rec = data["historical"][0]
         assert_dict_has_keys(

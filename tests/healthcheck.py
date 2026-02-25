@@ -189,10 +189,12 @@ def check_fmp(hc: HealthChecker):
         hc.check("FMP API Key", None, skip_reason="FMP_API_KEY 未设置")
         return
 
-    base = "https://financialmodelingprep.com/api/v3"
+    base = os.environ.get(
+        "FMP_BASE_URL", "https://financialmodelingprep.com/stable"
+    ).rstrip("/")
 
     def _profile():
-        resp = requests.get(f"{base}/profile/AAPL", params={"apikey": fmp_key}, timeout=15)
+        resp = requests.get(f"{base}/profile", params={"symbol": "AAPL", "apikey": fmp_key}, timeout=15)
         if resp.status_code != 200:
             raise ValueError(f"HTTP {resp.status_code}")
         data = resp.json()
@@ -201,7 +203,7 @@ def check_fmp(hc: HealthChecker):
         return f"公司: {data[0].get('companyName')}, 市值: {data[0].get('mktCap')}"
 
     def _income():
-        resp = requests.get(f"{base}/income-statement/AAPL", params={"apikey": fmp_key, "limit": 1}, timeout=15)
+        resp = requests.get(f"{base}/income-statement", params={"symbol": "AAPL", "apikey": fmp_key, "limit": 1}, timeout=15)
         if resp.status_code != 200:
             raise ValueError(f"HTTP {resp.status_code}")
         data = resp.json()
@@ -210,8 +212,8 @@ def check_fmp(hc: HealthChecker):
         return f"日期: {data[0].get('date')}, 收入: {data[0].get('revenue')}"
 
     def _historical():
-        resp = requests.get(f"{base}/historical-price-full/AAPL",
-                          params={"apikey": fmp_key, "from": "2024-01-01", "to": "2024-01-10"}, timeout=15)
+        resp = requests.get(f"{base}/historical-price-full",
+                          params={"symbol": "AAPL", "apikey": fmp_key, "from": "2024-01-01", "to": "2024-01-10"}, timeout=15)
         if resp.status_code != 200:
             raise ValueError(f"HTTP {resp.status_code}")
         data = resp.json()

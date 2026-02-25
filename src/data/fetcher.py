@@ -36,7 +36,9 @@ class DataFetcher:
     def __init__(self, cache_hours: int = 6):
         self.cache_hours = cache_hours
         self.fmp_key = os.environ.get("FMP_API_KEY", "").strip()
-        self._fmp_base = "https://financialmodelingprep.com/api/v3"
+        self._fmp_base = os.environ.get(
+            "FMP_BASE_URL", "https://financialmodelingprep.com/stable"
+        ).rstrip("/")
         self._tushare_token = os.environ.get("TUSHARE_TOKEN", "").strip()
         self._tushare_url = os.environ.get("TUSHARE_URL", "").strip()
 
@@ -302,8 +304,8 @@ class DataFetcher:
         """FMP 历史价格数据"""
         start = self._period_to_start(period)
         data = self._fmp_get(
-            f"historical-price-full/{symbol}",
-            {"from": start.strftime("%Y-%m-%d")},
+            "historical-price-full",
+            {"symbol": symbol, "from": start.strftime("%Y-%m-%d")},
         )
         if not data or "historical" not in data:
             return None
@@ -332,17 +334,17 @@ class DataFetcher:
 
         result = {}
         endpoints = {
-            "income_statement": f"income-statement/{symbol}",
-            "balance_sheet": f"balance-sheet-statement/{symbol}",
-            "cash_flow": f"cash-flow-statement/{symbol}",
-            "quarterly_income": f"income-statement/{symbol}",
-            "quarterly_balance": f"balance-sheet-statement/{symbol}",
-            "quarterly_cashflow": f"cash-flow-statement/{symbol}",
+            "income_statement": "income-statement",
+            "balance_sheet": "balance-sheet-statement",
+            "cash_flow": "cash-flow-statement",
+            "quarterly_income": "income-statement",
+            "quarterly_balance": "balance-sheet-statement",
+            "quarterly_cashflow": "cash-flow-statement",
         }
         quarterly_keys = {"quarterly_income", "quarterly_balance", "quarterly_cashflow"}
 
         for key, endpoint in endpoints.items():
-            params = {"limit": 8}
+            params = {"symbol": symbol, "limit": 8}
             if key in quarterly_keys:
                 params["period"] = "quarter"
             data = self._fmp_get(endpoint, params)
@@ -362,21 +364,21 @@ class DataFetcher:
             return cached
 
         # 1. 公司 profile
-        profile_data = self._fmp_get(f"profile/{symbol}")
+        profile_data = self._fmp_get("profile", {"symbol": symbol})
         if not profile_data or not isinstance(profile_data, list) or len(profile_data) == 0:
             return {"company_name": symbol, "error": "FMP profile not found"}
         p = profile_data[0]
 
         # 2. key-metrics-ttm
-        km_data = self._fmp_get(f"key-metrics-ttm/{symbol}")
+        km_data = self._fmp_get("key-metrics-ttm", {"symbol": symbol})
         km = km_data[0] if km_data and isinstance(km_data, list) and len(km_data) > 0 else {}
 
         # 3. ratios-ttm
-        ratios_data = self._fmp_get(f"ratios-ttm/{symbol}")
+        ratios_data = self._fmp_get("ratios-ttm", {"symbol": symbol})
         r = ratios_data[0] if ratios_data and isinstance(ratios_data, list) and len(ratios_data) > 0 else {}
 
         # 4. analyst estimates (如有)
-        est_data = self._fmp_get(f"analyst-estimates/{symbol}", {"limit": 1})
+        est_data = self._fmp_get("analyst-estimates", {"symbol": symbol, "limit": 1})
         est = est_data[0] if est_data and isinstance(est_data, list) and len(est_data) > 0 else {}
 
         result = {
@@ -427,7 +429,7 @@ class DataFetcher:
         # FMP 返回 margin/ratio 已经是小数 (0.xx)，与 yfinance 一致
         # 尝试从 income-statement 计算增长率
         try:
-            income = self._fmp_get(f"income-statement/{symbol}", {"limit": 2})
+            income = self._fmp_get("income-statement", {"symbol": symbol, "limit": 2})
             if income and len(income) >= 2:
                 rev_new = income[0].get("revenue", 0)
                 rev_old = income[1].get("revenue", 1)

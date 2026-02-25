@@ -136,23 +136,23 @@ class MockFMPResponse:
 
 
 def fmp_router(url, params=None, timeout=None):
-    """根据 URL 路由返回不同的 Mock 数据"""
+    """根据 URL 路由返回不同的 Mock 数据 (兼容 v3 和 stable API)"""
     url = url.lower()
-    if "/profile/" in url:
+    if "/profile" in url:
         return MockFMPResponse(SD.fmp_profile())
-    elif "/key-metrics-ttm/" in url:
+    elif "/key-metrics-ttm" in url:
         return MockFMPResponse(SD.fmp_key_metrics())
-    elif "/ratios-ttm/" in url:
+    elif "/ratios-ttm" in url:
         return MockFMPResponse(SD.fmp_ratios())
-    elif "/analyst-estimates/" in url:
+    elif "/analyst-estimates" in url:
         return MockFMPResponse(SD.fmp_analyst_estimates())
-    elif "/income-statement/" in url:
+    elif "/income-statement" in url:
         return MockFMPResponse(SD.fmp_income_statement())
-    elif "/balance-sheet-statement/" in url:
+    elif "/balance-sheet-statement" in url:
         return MockFMPResponse(SD.fmp_balance_sheet())
-    elif "/cash-flow-statement/" in url:
+    elif "/cash-flow-statement" in url:
         return MockFMPResponse(SD.fmp_cash_flow())
-    elif "/historical-price-full/" in url:
+    elif "/historical-price-full" in url:
         return MockFMPResponse(SD.fmp_historical_price())
     else:
         return MockFMPResponse(None, 404)
