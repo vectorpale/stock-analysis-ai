@@ -414,7 +414,7 @@ class DataFetcher:
             "50d_avg": p.get("price"),  # proxy
             "200d_avg": None,
             "avg_volume": p.get("volAvg"),
-            "shares_outstanding": km.get("marketCapTTM") / p.get("price", 1) if p.get("price") else None,
+            "shares_outstanding": km.get("marketCapTTM") / p["price"] if p.get("price") and km.get("marketCapTTM") else None,
             "float_shares": None,
             "insider_pct": None,
             "institution_pct": None,
