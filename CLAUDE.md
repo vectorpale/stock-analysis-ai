@@ -23,6 +23,7 @@
 ```
 config/config.yaml       # 行业映射、产业链、模型配置
 src/data/fetcher.py      # 多源行情与财务数据获取
+src/data/web_search.py   # Web搜索数据源 (DuckDuckGo+LLM提取+IR验证)
 src/data/industry.py     # 竞品识别、产业链、行业数据
 src/data/news.py         # 新闻、业绩会、分析师预期
 src/agents/definitions.py # Agent角色定义与提示词
@@ -64,6 +65,18 @@ python run_daily.py --dry-run            # 试运行不交易
 
 ## 数据源优先级
 
-- 美股: FMP → yfinance → AkShare
-- 港股: Tushare → AkShare → yfinance
-- A股: Tushare → AkShare → BaoStock
+- 美股: FMP → yfinance → AkShare → **Web搜索**
+- 港股: Tushare → AkShare → yfinance → **Web搜索**
+- A股: Tushare → AkShare → BaoStock → **Web搜索**
+
+### Web 搜索数据源 (新增)
+
+当传统 API 不可用时，自动使用 DuckDuckGo 搜索 + LLM 提取结构化数据。
+适合广为人知的上市公司。在 `config.yaml` 中设置 `web_search_enabled: true` 开启。
+
+```bash
+# 单独测试 Web 搜索数据源
+python tests/test_web_search.py                  # 完整测试 (BIDU)
+python tests/test_web_search.py --basic          # 仅测试搜索能力
+python tests/test_web_search.py --symbol AAPL    # 指定其他股票
+```

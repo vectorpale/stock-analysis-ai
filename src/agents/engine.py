@@ -80,9 +80,29 @@ class DebateEngine:
 
         # 子模块
         data_cfg = self.config.get("data", {})
-        self.fetcher = DataFetcher(cache_hours=data_cfg.get("cache_hours", 6))
-        self.industry_analyzer = IndustryAnalyzer(config_path)
-        self.news_collector = NewsCollector()
+
+        # Web 搜索数据源 (可选，需要 duckduckgo-search)
+        web_search_fetcher = None
+        if data_cfg.get("web_search_enabled", False):
+            try:
+                from src.data.web_search import WebSearchFetcher
+                web_search_fetcher = WebSearchFetcher(
+                    llm_client=self.llm,
+                    data_model=self.data_model,
+                    cache_hours=data_cfg.get("cache_hours", 6),
+                )
+                logger.info("Web 搜索数据源已启用")
+            except ImportError:
+                logger.warning("Web 搜索数据源启用失败: 缺少依赖 (pip install duckduckgo-search)")
+
+        self.fetcher = DataFetcher(
+            cache_hours=data_cfg.get("cache_hours", 6),
+            web_search_fetcher=web_search_fetcher,
+        )
+        self.industry_analyzer = IndustryAnalyzer(
+            config_path, web_search_fetcher=web_search_fetcher,
+        )
+        self.news_collector = NewsCollector(web_search_fetcher=web_search_fetcher)
         self.memory = AnalysisMemory()
 
         # Agent 键列表 (不含 risk_manager, CIO 独立)

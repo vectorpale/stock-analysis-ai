@@ -13,8 +13,9 @@ logger = logging.getLogger(__name__)
 class NewsCollector:
     """新闻、业绩会纪要、行业资讯收集器"""
 
-    def __init__(self):
+    def __init__(self, web_search_fetcher=None):
         self.news_api_key = os.environ.get("NEWS_API_KEY")
+        self._web_search = web_search_fetcher
 
     def collect_all_news(
         self, symbol: str, company_name: str = "", industry: str = "", max_items: int = 20
@@ -29,6 +30,13 @@ class NewsCollector:
         # 1. 公司新闻 (yfinance)
         result["company_news"] = self._fetch_yfinance_news(symbol, max_items)
 
+        # 1b. Web 搜索补充新闻 (如 yfinance 为空)
+        if not result["company_news"] and self._web_search:
+            logger.info(f"yfinance 新闻为空，尝试 Web 搜索: {symbol}")
+            result["company_news"] = self._web_search.fetch_news(
+                symbol, company_name, max_items
+            )
+
         # 2. 业绩日历/预期
         result["earnings_info"] = self._fetch_earnings_info(symbol)
 
@@ -36,6 +44,11 @@ class NewsCollector:
         if self.news_api_key and (company_name or industry):
             industry_news = self._fetch_newsapi(company_name or industry, max_items // 2)
             result["industry_news"] = industry_news
+        # 3b. Web 搜索行业新闻 (如无 NewsAPI key)
+        elif self._web_search and (company_name or industry):
+            result["industry_news"] = self._web_search.fetch_news(
+                "", company_name=industry or company_name, max_items=max_items // 2
+            )
 
         return result
 

@@ -8,6 +8,9 @@ akshare>=1.14.0
 tushare>=1.4.0
 baostock>=0.8.8
 requests>=2.31.0
+duckduckgo-search>=7.0.0          # Web搜索数据源 (免费，无需API Key)
+html2text>=2024.2.26              # HTML→文本转换 (Web搜索页面解析)
+beautifulsoup4>=4.12.0            # HTML解析 (备选)
 
 # Data Processing
 pandas>=2.1.0

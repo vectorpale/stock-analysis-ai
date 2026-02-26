@@ -48,6 +48,11 @@ data:
   cache_hours: 6                   # 缓存时效(小时)
   max_news_items: 20               # 最大新闻条数
   max_competitors: 5               # 最多分析竞品数量
+  # Web 搜索数据源 (无需金融 API Key，通过搜索引擎+LLM提取结构化数据)
+  # 开启后作为 FMP/Tushare/yfinance 之后的兜底数据源
+  # 适合: 广为人知的上市公司，网上有大量公开财务数据
+  # 依赖: pip install duckduckgo-search html2text
+  web_search_enabled: true
 
 # 行业分类与竞品映射
 # 格式: 行业名 -> [核心个股列表]
@@ -106,6 +111,12 @@ industry_mapping:
     symbols: ["AAPL", "DELL", "HPQ", "LOGI", "SONO"]
     upstream: ["TSM", "QCOM", "AVGO", "TXN"]
     downstream: ["AMZN", "BBY", "WMT"]
+
+  china_internet:
+    name: "中概互联网"
+    symbols: ["BIDU", "PDD", "JD", "BABA", "NTES", "TME", "BILI", "IQ"]
+    upstream: ["NVDA", "TSM"]
+    downstream: []
 
   # ---- 港股 ----
   hk_internet:

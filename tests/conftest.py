@@ -36,6 +36,15 @@ def isolate_cache(tmp_path, monkeypatch):
     monkeypatch.setattr(fetcher_mod, "CACHE_DIR", cache_dir)
     monkeypatch.setattr(fetcher_mod, "JSON_CACHE_DIR", json_cache_dir)
 
+    # Web 搜索缓存隔离
+    web_cache_dir = tmp_path / "cache" / "web"
+    web_cache_dir.mkdir(parents=True)
+    try:
+        import src.data.web_search as ws_mod
+        monkeypatch.setattr(ws_mod, "WEB_CACHE_DIR", web_cache_dir)
+    except ImportError:
+        pass
+
 
 # ==================================================================
 # 环境变量 Mock — 模拟有 API Key

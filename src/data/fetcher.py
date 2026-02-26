@@ -33,7 +33,7 @@ JSON_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 class DataFetcher:
     """多源股票数据获取器"""
 
-    def __init__(self, cache_hours: int = 6):
+    def __init__(self, cache_hours: int = 6, web_search_fetcher=None):
         self.cache_hours = cache_hours
         self.fmp_key = os.environ.get("FMP_API_KEY", "").strip()
         self._fmp_base = os.environ.get(
@@ -41,6 +41,9 @@ class DataFetcher:
         ).rstrip("/")
         self._tushare_token = os.environ.get("TUSHARE_TOKEN", "").strip()
         self._tushare_url = os.environ.get("TUSHARE_URL", "").strip()
+        # Web 搜索数据源 (可选)
+        self._web_search = web_search_fetcher
+        self._web_search_enabled = web_search_fetcher is not None
 
     # ------------------------------------------------------------------
     # 市场检测
@@ -204,6 +207,17 @@ class DataFetcher:
         except Exception as e:
             logger.warning(f"yfinance 财报获取失败 {symbol}: {e}")
 
+        if result and any(v for v in result.values() if v):
+            return result
+
+        # Web 搜索兜底
+        if self._web_search_enabled:
+            logger.info(f"尝试 Web 搜索获取财报: {symbol}")
+            result = self._web_search.fetch_financials(symbol)
+            if result and any(v for v in result.values()
+                             if v and not isinstance(v, str)):
+                return result
+
         return result
 
     def fetch_key_metrics(self, symbol: str) -> dict:
@@ -273,8 +287,16 @@ class DataFetcher:
                 "num_analysts": info.get("numberOfAnalystOpinions"),
             }
         except Exception as e:
-            logger.warning(f"关键指标获取失败 {symbol}: {e}")
-            return {"company_name": symbol, "error": str(e)}
+            logger.warning(f"yfinance 关键指标获取失败 {symbol}: {e}")
+
+        # Web 搜索兜底 (需要配置 WebSearchFetcher)
+        if self._web_search_enabled:
+            logger.info(f"尝试 Web 搜索获取指标: {symbol}")
+            result = self._web_search.fetch_key_metrics(symbol)
+            if result and not result.get("error"):
+                return result
+
+        return {"company_name": symbol, "error": "all sources failed"}
 
     def fetch_news(self, symbol: str, max_items: int = 20) -> list[dict]:
         """获取个股新闻"""

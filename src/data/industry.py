@@ -15,12 +15,14 @@ logger = logging.getLogger(__name__)
 class IndustryAnalyzer:
     """行业/竞品/产业链分析器"""
 
-    def __init__(self, config_path: str = "config/config.yaml"):
+    def __init__(self, config_path: str = "config/config.yaml",
+                 web_search_fetcher=None):
         with open(config_path, "r", encoding="utf-8") as f:
             self.config = yaml.safe_load(f)
         self.industry_mapping = self.config.get("industry_mapping", {})
         self.fetcher = DataFetcher(
-            cache_hours=self.config.get("data", {}).get("cache_hours", 6)
+            cache_hours=self.config.get("data", {}).get("cache_hours", 6),
+            web_search_fetcher=web_search_fetcher,
         )
 
     def find_industry(self, symbol: str) -> Optional[dict]:
