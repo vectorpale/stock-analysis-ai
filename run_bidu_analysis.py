@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """
-BIDU (百度) 完整多Agent辩论分析 — 使用预收集数据 + Anthropic API
+BIDU (百度) 完整多Agent辩论分析 v2 — SSOT + Fact-Checker + 互斥角色
 
 绕过沙盒网络限制:
   - 数据层: 使用之前 Web 搜索测试收集的真实 BIDU 金融数据
   - LLM层: 使用 Anthropic API (沙盒可访问)
 
-流水线: 数据注入 → 5位分析师独立分析 → 多轮辩论 → CIO拷问 → 风控审核 → CIO决策 → 配对交易
+v2 流水线:
+  数据注入 → SSOT预计算 → 6位互斥分析师独立分析 → Fact-Check →
+  多轮辩论 → 二次Fact-Check → CIO拷问 → 反共识分析 →
+  风控审核(绝对收益) → CIO决策(击球区判断) → 配对交易
 """
 
 import json
@@ -400,10 +403,11 @@ def build_data_pack(engine):
 
 def main():
     console.print(Panel(
-        "[bold cyan]百度 (BIDU) 完整多Agent辩论分析[/bold cyan]\n"
-        "[dim]数据源: Web搜索预收集 + IR交叉验证 | LLM: Anthropic Claude[/dim]\n"
+        "[bold cyan]百度 (BIDU) 完整多Agent辩论分析 v2[/bold cyan]\n"
+        "[dim]SSOT + Fact-Checker + 6个互斥角色 + 击球区判断[/dim]\n"
+        "[dim]数据源: Web搜索预收集 | LLM: Anthropic Claude[/dim]\n"
         "\n[bold yellow]BIDU — Baidu, Inc.[/bold yellow]",
-        title="Stock Deep Analysis (Sandbox Mode)",
+        title="Stock Deep Analysis v2 (Sandbox Mode)",
         border_style="cyan",
     ))
 

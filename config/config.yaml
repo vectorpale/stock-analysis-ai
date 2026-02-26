@@ -20,10 +20,10 @@ models:
   # cio: "qwen-max"               # CIO 最终决策 (最强推理)
   # analyst: "qwen-plus"          # 分析师辩论 (平衡性能与成本)
   # data_extract: "qwen-turbo"    # 数据提取 (快速)
-  # Anthropic 模型 (切换到 Claude 时使用):
-  #   cio: "claude-opus-4-20250514"
-  #   analyst: "claude-sonnet-4-20250514"
-  #   data_extract: "claude-haiku-4-5-20251001"
+  # Anthropic 模型 (v2 推荐):
+  #   cio: "claude-opus-4-20250514"          # CIO + 风控 (Opus 4.6 最强推理)
+  #   analyst: "claude-sonnet-4-20250514"    # 6位分析师 (Sonnet 4.6 平衡)
+  #   data_extract: "claude-haiku-4-5-20251001"  # 数据提取 (Haiku 快速)
 
 # 辩论参数
 debate:
@@ -32,14 +32,15 @@ debate:
   min_confidence_buy: 65           # 最低买入信心阈值
   risk_veto_enabled: true          # 风控官一票否决权
 
-# 分析师权重
+# 分析师权重 (v2: 6个互斥角色, 权重来自 AGENT_ROLES 定义)
+# 引擎已从 AGENT_ROLES 自动读取权重，此处仅供参考/覆盖
 agent_weights:
-  fundamental_bull: 1.0
-  fundamental_bear: 1.0
-  industry_analyst: 1.2            # 行业分析师权重略高
-  financial_analyst: 1.2           # 财务分析师权重略高
-  macro_strategist: 0.9
-  risk_manager: 1.1
+  moat_analyst: 1.2                # 护城河分析师 (Warren)
+  reflexivity_analyst: 1.0         # 反身性分析师 (George)
+  forensic_accountant: 1.2         # 财务审计师 (Rachel)
+  red_team: 1.1                    # 红队 (Victor)
+  macro_strategist: 0.9            # 宏观策略师 (Kai)
+  sotp_valuator: 1.3               # SOTP估值师 (Quant)
 
 # 数据获取配置
 # 美股推荐设置 FMP_API_KEY (免费250次/天): https://site.financialmodelingprep.com/developer/docs
@@ -214,6 +215,20 @@ market_context:
     - "美团2025年Q3财报显示核心本地商业利润率持续改善，但到店业务增速承压"
     - "美团加大AI和自动配送投入，无人机配送在深圳等城市试点扩大"
     - "抖音本地生活到店业务持续渗透，商户营销预算从美团向抖音转移"
+
+  china_internet:
+    - "百度2024年Q4营收341.5亿元，AI Cloud营收增速超30%"
+    - "百度文心大模型用户数突破4亿，AI商业化加速"
+    - "中概股整体估值修复，BIDU PE约15x，处于历史低位"
+    - "拼多多Temu海外增长放缓，国内电商竞争格局重组"
+    - "京东、阿里持续回购，中概互联网股东回报改善"
+
+  BIDU:
+    - "百度2024年Q4在线营销收入192.4亿元，同比增长1%，增长乏力"
+    - "百度智能云2024年全年收入预计超200亿元，AI Cloud成为第二增长曲线"
+    - "Apollo Go自动驾驶累计订单超800万，但商业化路径仍不明朗"
+    - "百度2024年全年回购约20亿美元，显示管理层对估值低估的信心"
+    - "中美AI竞争加剧，DeepSeek等国产大模型崛起对百度形成潜在威胁"
 
   NVDA:
     - "Blackwell Ultra/Rubin架构路线图公布，保持年度迭代节奏"
