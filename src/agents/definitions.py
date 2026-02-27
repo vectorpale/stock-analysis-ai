@@ -400,19 +400,22 @@ CIO_SYSTEM_PROMPT = """你是首席投资官 (CIO)，追求高确定性绝对收
     },
 
     "trading_signal": {
-        "action": "BUY / SELL / HOLD / PASS / 分批买入 / 分批卖出 / 观望",
+        "action": "必须与recommendation一致: recommendation=HOLD→action=HOLD, recommendation=PASS→action=PASS, recommendation=BUY→action可以是BUY或分批买入, recommendation=SELL→action可以是SELL或分批卖出",
         "urgency": "立即执行 / 择机执行 / 不急",
-        "entry_price": "建议入场价或区间",
-        "entry_strategy": "具体入场策略描述",
-        "exit_plan": {
-            "take_profit_1": {"price": 第一目标价, "sell_pct": 减仓比例},
-            "take_profit_2": {"price": 第二目标价, "sell_pct": 减仓比例},
-            "stop_loss": {"price": 止损价, "sell_pct": 100}
-        },
-        "position_plan": "仓位管理策略",
+        "entry_price": "建议入场价或区间 (HOLD/PASS时写'N/A')",
+        "entry_strategy": "具体入场策略描述 (HOLD/PASS时写'继续观望，等待更明确信号')",
+        "exit_plan": "如果action=HOLD/PASS，此字段写null (不应为零仓位制定退出计划); 如果action=BUY/SELL则填: {take_profit_1: {price, sell_pct}, take_profit_2: {price, sell_pct}, stop_loss: {price, sell_pct: 100}}",
+        "position_plan": "仓位管理策略 (HOLD/PASS时写'空仓观察')",
         "review_triggers": ["触发重新评估的条件1", "条件2"]
     }
 }
+
+## 一致性自检 (输出前必须验证)
+1. recommendation=HOLD/PASS 时: trading_signal.action 必须也是 HOLD/PASS，不能出现任何"买入"操作
+2. executive_summary 中不得包含"博弈""赌""试探""虚张声势"等投机性词汇
+3. consensus_probability + contrarian_probability 应 = 100
+4. contrarian_probability 的取值必须遵守反共识硬约束规则（参见系统提示词）
+5. target_price 必须引用 SSOT 估值结果，并解释与 SSOT 公允价值的差异原因
 
 回复用中文。"""
 
@@ -614,6 +617,7 @@ CIO_CHALLENGE_PROMPT = """你刚刚看完分析师团队的辩论和 Fact-Checke
 3. 至少一个问题涉及"SSOT 安全边际和胜率赔率是否支持当前共识"
 4. 至少一个问题是"什么条件下你们的判断会完全错误"
 5. 至少一个问题针对 Red Team 的攻击论点
+6. 问题中不得使用"博弈""赌""试探""搏一搏"等投机性词汇（"博弈论"也不允许，请用"策略分析"替代）
 
 返回 JSON 格式:
 {{
@@ -738,11 +742,15 @@ CONTRARIAN_ANALYSIS_PROMPT = """分析师团队经过辩论和CIO拷问后形成
 ## 分析师对CIO拷问的回应中暴露的薄弱点
 {weak_points}
 
-## SSOT 关键数据
+## SSOT 关键数据 (唯一可信估值来源 — data_support 必须引用此处数据)
 {ssot_summary}
 
-## 公司关键数据
+## 公司关键数据 (原始指标，仅供参考；估值类数据以 SSOT 为准)
 {key_data}
+
+**重要**: data_support 中引用 PE、PS、PB 等估值倍数时，必须使用 SSOT 中的数值，
+不要使用"公司关键数据"中的原始 pe_ratio (可能基于不同年份利润计算)。
+如果 SSOT 和原始数据中 PE 不一致，以 SSOT 为准并标注差异原因。
 
 ---
 
@@ -771,7 +779,7 @@ CONTRARIAN_ANALYSIS_PROMPT = """分析师团队经过辩论和CIO拷问后形成
     "probability_estimate": 0-100,
     "probability_justification": "解释为什么给出这个概率——必须与evidence_quality_summary一致",
     "key_price_driver": "你认为真正决定未来12个月股价的核心变量是什么"
-}}
+}}"""
 
 
 # ================================================================
@@ -937,4 +945,11 @@ PAIR_TRADE_PROMPT = """请基于以下分析结论，设计一个配对交易 (L
 请设计配对交易策略。要求:
 1. Long/Short 两腿必须与目标公司 {symbol} 有明确的逻辑关联
 2. 预期收益必须有 SSOT 估值数据支撑
-3. 如果确实找不到合理的配对机会，请诚实回答 has_recommendation=false"""
+3. 如果确实找不到合理的配对机会，请诚实回答 has_recommendation=false
+4. 配对策略的核心逻辑不能建立在对竞争对手意图的猜测上（如"XX可能在虚张声势"）
+5. **配对策略必须与 CIO 建议方向一致**:
+   - CIO 建议 HOLD/PASS → 不推荐配对交易 (has_recommendation=false)，原因写"CIO建议观望，不适合建立任何方向性头寸"
+   - CIO 建议 BUY → Long 腿可以是目标公司
+   - CIO 建议 SELL → Short 腿可以是目标公司
+   - 风控 VETO → 必须 has_recommendation=false
+6. 入场时机不能基于对竞争格局未来走向的猜测"""

@@ -866,6 +866,14 @@ class DebateEngine:
                         f"承认了「{resp.get('question', '')[:40]}」"
                     )
 
+        # 准备 SSOT 摘要
+        ssot_text = ""
+        valuation = data_pack.get("valuation")
+        if valuation:
+            ssot_text = data_pack.get("valuation_text", "")
+        else:
+            ssot_text = "SSOT 估值数据不可用"
+
         prompt = CONTRARIAN_ANALYSIS_PROMPT.format(
             consensus_summary=cio_challenge.get("consensus_summary", consensus),
             consensus_direction=cio_challenge.get("consensus_direction", consensus),
@@ -873,6 +881,7 @@ class DebateEngine:
             core_assumption=cio_challenge.get("core_assumption", "未知"),
             final_positions="\n".join(positions_text),
             weak_points="\n".join(weak_points) if weak_points else "未发现明显弱点",
+            ssot_summary=ssot_text,
             key_data=format_metrics_text(data_pack["key_metrics"]),
         )
 

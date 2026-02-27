@@ -69,7 +69,8 @@ def load_key_metrics():
         "industry": "Internet Content & Information / Local Services",
         "market_cap": market_cap_usd,  # $64.7B
         "enterprise_value": market_cap_usd - (98_400_000_000 / 7.3),  # 减去净现金
-        "pe_ratio": pe_fy2024,  # ~13.2x 基于FY2024利润
+        "pe_ratio": pe_fy2024,  # ~13.2x 基于FY2024利润 (注意: 2025年巨亏导致TTM PE=103x, SSOT以TTM为准)
+        "pe_ratio_note": "此PE基于FY2024盈利高峰(358亿)计算=13.2x。2025年巨亏后TTM PE高达103x。SSOT使用TTM PE=103x。请勿将13.2x作为当前估值引用，应使用SSOT的103x。",
         "forward_pe": forward_pe_26e,  # 88x 基于2026E
         "peg_ratio": None,  # 2025亏损无法计算
         "pb_ratio": market_cap_hkd / (172_600_000_000 / 0.935),  # ~2.73x
@@ -110,8 +111,9 @@ def load_key_metrics():
         "data_confidence": "high",
         "extraction_notes": (
             "FY2024是盈利大年(净利润+158%)，但2025年因外卖大战急剧转亏。"
-            "TTM PE为负(2025H2亏损)，此处pe_ratio使用FY2024利润计算(~13x)作为参考。"
-            "forward_pe 88x为国信证券2026E预测(预计利润仅71亿元)。"
+            "**重要PE说明**: pe_ratio=13.2x基于FY2024高峰盈利，不代表当前估值。"
+            "SSOT TTM PE=103x（含2025年亏损），forward PE=88x(2026E)。"
+            "引用估值数据时必须使用SSOT的103x，而非pe_ratio的13.2x。"
             "2025全年预亏233-243亿元。"
             "股价HKD 82.70距52周高点189.60跌幅56%。"
         ),
@@ -631,11 +633,12 @@ def main():
     output_dir = Path("data/test_output")
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    report_path = output_dir / "meituan_analysis_report.txt"
+    # 使用 v3 文件名 (含证据分级改进)
+    report_path = output_dir / "meituan_v5_report.txt"
     report_path.write_text(report, encoding="utf-8")
     console.print(f"\n[green]报告已保存: {report_path}[/green]")
 
-    json_path = output_dir / "meituan_analysis_result.json"
+    json_path = output_dir / "meituan_v5_result.json"
     clean_result = _clean_for_json(result)
     json_path.write_text(
         json.dumps(clean_result, ensure_ascii=False, indent=2),
@@ -644,7 +647,7 @@ def main():
     console.print(f"[green]JSON已保存: {json_path}[/green]")
 
     # PDF 报告
-    pdf_path = output_dir / "meituan_analysis_report.pdf"
+    pdf_path = output_dir / "meituan_v5_report.pdf"
     try:
         generate_pdf_report(clean_result, str(pdf_path))
         console.print(f"[green]PDF已保存: {pdf_path}[/green]")
