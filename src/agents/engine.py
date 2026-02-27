@@ -1025,17 +1025,30 @@ class DebateEngine:
         # 反共识分析摘要
         contrarian_text = "无反共识分析"
         if contrarian:
+            # 展示证据质量评级
+            eq = contrarian.get("evidence_quality_summary", {})
+            evidence_grade = eq.get("overall_evidence_grade", "未评级")
+            honest = eq.get("honest_assessment", "")
             contrarian_text = (
                 f"反共识立场: {contrarian.get('contrarian_position', 'N/A')}\n"
                 f"反共识论点: {contrarian.get('contrarian_thesis', 'N/A')}\n"
                 f"概率评估: {contrarian.get('probability_estimate', '?')}%\n"
-                f"核心价格驱动: {contrarian.get('key_price_driver', 'N/A')}\n"
+                f"概率依据: {contrarian.get('probability_justification', 'N/A')}\n"
+                f"证据质量评级: {evidence_grade}\n"
             )
+            if honest:
+                contrarian_text += f"诚实自评: {honest}\n"
+            contrarian_text += f"核心价格驱动: {contrarian.get('key_price_driver', 'N/A')}\n"
             evidence = contrarian.get("contrarian_evidence", [])
             if evidence:
-                contrarian_text += "证据:\n"
-                for e in evidence[:3]:
-                    contrarian_text += f"  - {e.get('point', '')}: {e.get('data_support', '')}\n"
+                contrarian_text += "证据 (含分级):\n"
+                for e in evidence[:4]:
+                    etype = e.get("evidence_type", "未标注")
+                    estr = e.get("evidence_strength", "未标注")
+                    contrarian_text += (
+                        f"  - [{estr}/{etype}] {e.get('point', '')}: "
+                        f"{e.get('data_support', '')}\n"
+                    )
 
         # 风控意见
         risk_text = (
@@ -1424,12 +1437,31 @@ class DebateEngine:
                 lines.append(f"反共识立场: {contrarian.get('contrarian_position', 'N/A')}")
                 lines.append(f"核心论点: {contrarian.get('contrarian_thesis', 'N/A')}")
                 lines.append(f"概率评估: {contrarian.get('probability_estimate', '?')}%")
+                prob_just = contrarian.get("probability_justification", "")
+                if prob_just:
+                    lines.append(f"概率依据: {prob_just}")
+                # 证据质量评级
+                eq = contrarian.get("evidence_quality_summary", {})
+                if eq:
+                    grade = eq.get("overall_evidence_grade", "未评级")
+                    s_count = eq.get("strong_count", 0)
+                    m_count = eq.get("moderate_count", 0)
+                    w_count = eq.get("weak_count", 0)
+                    lines.append(
+                        f"证据质量: {grade} "
+                        f"(strong:{s_count} / moderate:{m_count} / weak:{w_count})"
+                    )
+                    honest = eq.get("honest_assessment", "")
+                    if honest:
+                        lines.append(f"诚实自评: {honest}")
                 lines.append(f"核心价格驱动: {contrarian.get('key_price_driver', 'N/A')}")
                 evidence = contrarian.get("contrarian_evidence", [])
                 if evidence:
-                    lines.append("证据:")
-                    for e in evidence[:3]:
-                        lines.append(f"  - {e.get('point', '')}")
+                    lines.append("证据 (含分级):")
+                    for e in evidence[:4]:
+                        etype = e.get("evidence_type", "未标注")
+                        estr = e.get("evidence_strength", "未标注")
+                        lines.append(f"  - [{estr}/{etype}] {e.get('point', '')}")
                         lines.append(f"    数据: {e.get('data_support', '')}")
 
             if challenge.get("challenges"):

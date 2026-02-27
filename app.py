@@ -428,13 +428,31 @@ if analyze_btn and api_key:
                     st.markdown(f"**反共识立场:** {contrarian.get('contrarian_position', 'N/A')}")
                     st.markdown(f"**核心论点:** {contrarian.get('contrarian_thesis', 'N/A')}")
                     st.markdown(f"**概率评估:** {contrarian.get('probability_estimate', '?')}%")
+                    prob_just = contrarian.get("probability_justification", "")
+                    if prob_just:
+                        st.markdown(f"**概率依据:** {prob_just}")
+                    # 证据质量评级
+                    eq = contrarian.get("evidence_quality_summary", {})
+                    if eq:
+                        grade = eq.get("overall_evidence_grade", "未评级")
+                        s = eq.get("strong_count", 0)
+                        m = eq.get("moderate_count", 0)
+                        w = eq.get("weak_count", 0)
+                        grade_color = {"A": "🟢", "B": "🟡", "C": "🟠", "D": "🔴"}.get(grade, "⚪")
+                        st.markdown(f"**证据质量:** {grade_color} **{grade}** (strong:{s} / moderate:{m} / weak:{w})")
+                        honest = eq.get("honest_assessment", "")
+                        if honest:
+                            st.caption(f"诚实自评: {honest}")
                     st.markdown(f"**核心价格驱动:** {contrarian.get('key_price_driver', 'N/A')}")
 
                     evidence = contrarian.get("contrarian_evidence", [])
                     if evidence:
-                        st.markdown("**证据:**")
-                        for e in evidence[:3]:
-                            st.markdown(f"- {e.get('point', '')}: {e.get('data_support', '')}")
+                        st.markdown("**证据 (含分级):**")
+                        for e in evidence[:4]:
+                            etype = e.get("evidence_type", "未标注")
+                            estr = e.get("evidence_strength", "未标注")
+                            strength_icon = {"strong": "🟢", "moderate": "🟡", "weak": "🔴"}.get(estr, "⚪")
+                            st.markdown(f"- {strength_icon} **[{estr}/{etype}]** {e.get('point', '')}: {e.get('data_support', '')}")
                             st.caption(f"共识盲点: {e.get('consensus_blind_spot', '')}")
 
                     if contrarian.get("historical_parallel"):
