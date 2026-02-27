@@ -27,6 +27,7 @@ from rich.panel import Panel
 from src.agents.engine import DebateEngine
 from src.valuation.models import run_valuation, format_valuation_text
 from src.utils.llm_client import LLMProvider
+from src.utils.pdf_report import generate_pdf_report
 
 console = Console()
 
@@ -641,6 +642,14 @@ def main():
         encoding="utf-8",
     )
     console.print(f"[green]JSON已保存: {json_path}[/green]")
+
+    # PDF 报告
+    pdf_path = output_dir / "meituan_analysis_report.pdf"
+    try:
+        generate_pdf_report(clean_result, str(pdf_path))
+        console.print(f"[green]PDF已保存: {pdf_path}[/green]")
+    except Exception as e:
+        console.print(f"[yellow]PDF生成失败: {e}[/yellow]")
 
 
 def _clean_for_json(obj):

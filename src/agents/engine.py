@@ -202,7 +202,7 @@ class DebateEngine:
                 f"(阈值: {ssot_report.safety_margin.threshold_pct}%)")
         if ssot_report and ssot_report.win_rate_odds:
             wro = ssot_report.win_rate_odds
-            msg(f"  胜率: {wro.win_rate_pct:.0f}%, 赔率: {wro.odds_ratio:.1f}:1")
+            msg(f"  胜率: {wro.win_rate*100:.0f}%, 赔率: {wro.odds_ratio:.1f}:1")
 
         # ============================================================
         # Phase 1: 独立分析 (6 个互斥 Agent)
@@ -613,11 +613,12 @@ class DebateEngine:
             sm = ssot_report.safety_margin
             wro = ssot_report.win_rate_odds
             if sm and wro:
+                wr_pct = wro.win_rate * 100
                 ssot_criteria = (
                     f"安全边际: {sm.margin_pct:+.1f}% (阈值 ≥{sm.threshold_pct}%, "
-                    f"{'达标' if sm.is_sufficient else '不达标'})\n"
-                    f"胜率: {wro.win_rate_pct:.0f}% (阈值 ≥60%, "
-                    f"{'达标' if wro.win_rate_pct >= 60 else '不达标'})\n"
+                    f"{'达标' if sm.meets_threshold else '不达标'})\n"
+                    f"胜率: {wr_pct:.0f}% (阈值 ≥60%, "
+                    f"{'达标' if wr_pct >= 60 else '不达标'})\n"
                     f"赔率: {wro.odds_ratio:.1f}:1 (阈值 ≥2:1, "
                     f"{'达标' if wro.odds_ratio >= 2.0 else '不达标'})"
                 )
@@ -1057,10 +1058,11 @@ class DebateEngine:
             parts = []
             if ssot_report.safety_margin:
                 sm = ssot_report.safety_margin
-                parts.append(f"安全边际: {sm.margin_pct:+.1f}% ({'达标' if sm.is_sufficient else '不达标'}, 阈值≥{sm.threshold_pct}%)")
+                parts.append(f"安全边际: {sm.margin_pct:+.1f}% ({'达标' if sm.meets_threshold else '不达标'}, 阈值≥{sm.threshold_pct}%)")
             if ssot_report.win_rate_odds:
                 wro = ssot_report.win_rate_odds
-                parts.append(f"胜率: {wro.win_rate_pct:.0f}% ({'达标' if wro.win_rate_pct >= 60 else '不达标'}, 阈值≥60%)")
+                wr_pct = wro.win_rate * 100
+                parts.append(f"胜率: {wr_pct:.0f}% ({'达标' if wr_pct >= 60 else '不达标'}, 阈值≥60%)")
                 parts.append(f"赔率: {wro.odds_ratio:.1f}:1 ({'达标' if wro.odds_ratio >= 2.0 else '不达标'}, 阈值≥2:1)")
             if parts:
                 strike_zone_text = "\n".join(parts)
@@ -1331,10 +1333,11 @@ class DebateEngine:
             sm = ssot.get("safety_margin", {})
             if sm:
                 lines.append(f"安全边际: {sm.get('margin_pct', 'N/A')}% "
-                             f"({'达标' if sm.get('is_sufficient') else '不达标'})")
+                             f"({'达标' if sm.get('meets_threshold') else '不达标'})")
             wro = ssot.get("win_rate_odds", {})
             if wro:
-                lines.append(f"胜率: {wro.get('win_rate_pct', 'N/A')}%")
+                wr = wro.get("win_rate", 0)
+                lines.append(f"胜率: {wr*100:.0f}%")
                 lines.append(f"赔率: {wro.get('odds_ratio', 'N/A')}:1")
             lines.append("")
 
